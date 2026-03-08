@@ -591,16 +591,21 @@ When `--explain-path` score is below the `--min-attack-score` threshold:
 Requested attack path score 92 is below --min-attack-score threshold
 ```
 
-#### Attack Path Graph Visualization (Phase 10)
+#### Attack Path Graph Visualization (Phase 10 + Phase 11.5)
 
 Use `--attack-graph` to render detected attack paths as a directed graph. Requires `--show-risk-chains`. Graph export is **rendering-only** — no engine changes, no scoring modifications, no policy enforcement.
+
+Internally, `dp` now builds an **Asset Graph** (similar to modern cloud security platforms) that models your infrastructure as a directed graph of real API-level relationships. This graph is built from collected cluster inventory after every audit and serves as the foundation for attack path analysis, future AI explanations, and drift detection.
 
 The graph builder uses **real Kubernetes structural relationships** and **workload-collapsed nodes** — no heuristics, no ordering-based guesses:
 - `Internet → LoadBalancer` always (every exposed Service is an entry point)
 - `LoadBalancer → Workload` only when the Service's `spec.selector` matches the pod's `metadata.labels`
 - `Workload → ServiceAccount` only when `pod.spec.serviceAccountName` matches the SA finding's resource ID in the same namespace
+- `ServiceAccount → IAMRole` (Phase 11) when the SA has the `eks.amazonaws.com/role-arn` IRSA annotation — bridges Kubernetes identity to AWS IAM
 
 **Pods are not graph nodes.** Instead, pods are collapsed into their parent workload (Deployment, StatefulSet, DaemonSet, Job, or CronJob), resolved via `pod.metadata.ownerReferences`. Multiple replicas of the same Deployment produce a single `Deployment_*` node — keeping large clusters readable regardless of replica count.
+
+**IRSA bridge (Phase 11)**: when a ServiceAccount is annotated with an IAM role ARN, the graph adds an `IAMRole` node (`{roleName} (AWS IAM)`) and an edge from the SA node. This makes cross-plane privilege escalation — a workload assuming an AWS IAM role via IRSA — visible as a direct graph path.
 
 Nodes with no confirmed structural partner still appear in the graph — a node without an edge means the relationship cannot be confirmed from the available data, not that no risk exists.
 

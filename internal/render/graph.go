@@ -8,6 +8,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/graph"
 	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
 )
 
@@ -73,34 +74,31 @@ var ruleNodeType = map[string]string{
 // BuildAttackGraph constructs a Graph from the attack paths in summary using
 // real Kubernetes structural relationships and workload-collapsed nodes.
 //
-// Node hierarchy (Phase 10.4):
+// Node hierarchy (Phase 10.4 / Phase 11.5):
 //
-//	Internet → LoadBalancer → Workload (Deployment/StatefulSet/…) → ServiceAccount
+//	Internet → LoadBalancer → Workload (Deployment/StatefulSet/…) → ServiceAccount → IAMRole
+//
+// When assetGraph is non-nil (Phase 11.5), it is used as the source of truth
+// for edge derivation: LoadBalancer→Workload, Workload→ServiceAccount, and
+// ServiceAccount→IAMRole edges are confirmed via AssetGraph.HasEdge rather
+// than re-deriving them from finding metadata. The output is identical to the
+// metadata-based path when the AssetGraph is built from the same cluster data.
+// When assetGraph is nil, the legacy metadata-based approach is used.
 //
 // Edge rules:
 //
 //	Internet → LoadBalancer   always; every LB finding gets this edge.
-//	LoadBalancer → Workload   only when the Service's selector matches the pod's labels
-//	                          (Metadata["service_selector"] vs Metadata["pod_labels"]).
-//	Workload → ServiceAccount only when the pod's declared SA name matches the SA
-//	                          finding's ResourceID in the same namespace
-//	                          (Metadata["pod_service_account"] == sa.ResourceID).
-//
-// Workload collapsing (Phase 10.4): multiple pod findings that belong to the
-// same workload (same workload_kind + workload_name) produce a single graph node.
-// The workload kind/name are resolved at the engine layer via ownerReferences.
-//
-// Nodes that have no matching structural partner are still added to the graph
-// but receive no edges from the unpaired layer. IAMRole, Cluster, and CloudResource
-// nodes are added as context nodes without structural edges.
+//	LoadBalancer → Workload   selector match (metadata) or AssetGraph edge.
+//	Workload → ServiceAccount SA name match (metadata) or AssetGraph edge.
+//	ServiceAccount → IAMRole  iam_role_arn metadata or AssetGraph edge (Phase 11).
 //
 // Node deduplication: if the same resource appears across multiple paths only
 // one GraphNode is created. Edge deduplication: identical edges are collapsed.
-func BuildAttackGraph(summary models.AuditSummary, findings []models.Finding) Graph {
-	var graph Graph
+func BuildAttackGraph(summary models.AuditSummary, findings []models.Finding, assetGraph *graph.Graph) Graph {
+	var g Graph
 
 	if len(summary.AttackPaths) == 0 {
-		return graph
+		return g
 	}
 
 	// Index findings for fast lookup.
@@ -117,7 +115,7 @@ func BuildAttackGraph(summary models.AuditSummary, findings []models.Finding) Gr
 			return
 		}
 		nodeSet[id] = true
-		graph.Nodes = append(graph.Nodes, GraphNode{ID: id, Label: label, Type: typ})
+		g.Nodes = append(g.Nodes, GraphNode{ID: id, Label: label, Type: typ})
 	}
 
 	addEdge := func(from, to string) {
@@ -126,7 +124,7 @@ func BuildAttackGraph(summary models.AuditSummary, findings []models.Finding) Gr
 			return
 		}
 		edgeSet[key] = true
-		graph.Edges = append(graph.Edges, GraphEdge{From: from, To: to})
+		g.Edges = append(g.Edges, GraphEdge{From: from, To: to})
 	}
 
 	for _, path := range summary.AttackPaths {
@@ -168,15 +166,23 @@ func BuildAttackGraph(summary models.AuditSummary, findings []models.Finding) Gr
 		// ── Workload nodes: connect to each LB whose selector matches ─────────
 		// Phase 10.4: pod findings collapse into their parent workload node.
 		// Multiple pods of the same workload produce one node (via nodeSet dedup).
+		// Phase 11.5: when AssetGraph is available use it as the edge source of
+		// truth instead of re-deriving edges from finding metadata.
 		for _, f := range podFindings {
 			wid, wLabel, wType := workloadNodeInfo(f)
 			addNode(wid, wLabel, wType)
 
-			podLabels, _ := f.Metadata["pod_labels"].(map[string]string)
 			for _, lbf := range lbFindings {
 				lbID := sanitizeNodeID("LoadBalancer_" + lbf.ResourceID)
-				selector, _ := lbf.Metadata["service_selector"].(map[string]string)
-				if selectorMatchesPodLabels(selector, podLabels) {
+				var connected bool
+				if assetGraph != nil {
+					connected = assetGraph.HasEdge(lbID, wid)
+				} else {
+					podLabels, _ := f.Metadata["pod_labels"].(map[string]string)
+					selector, _ := lbf.Metadata["service_selector"].(map[string]string)
+					connected = selectorMatchesPodLabels(selector, podLabels)
+				}
+				if connected {
 					addEdge(lbID, wid)
 				}
 			}
@@ -187,14 +193,39 @@ func BuildAttackGraph(summary models.AuditSummary, findings []models.Finding) Gr
 			nid := sanitizeNodeID("ServiceAccount_" + f.ResourceID)
 			addNode(nid, findingNodeLabel(f), "ServiceAccount")
 
-			saNS, _ := f.Metadata["namespace"].(string)
 			for _, pf := range podFindings {
-				podSA, _ := pf.Metadata["pod_service_account"].(string)
-				podNS, _ := pf.Metadata["namespace"].(string)
-				if podSA == f.ResourceID && podNS == saNS {
-					wid, _, _ := workloadNodeInfo(pf)
+				wid, _, _ := workloadNodeInfo(pf)
+				var connected bool
+				if assetGraph != nil {
+					connected = assetGraph.HasEdge(wid, nid)
+				} else {
+					podSA, _ := pf.Metadata["pod_service_account"].(string)
+					podNS, _ := pf.Metadata["namespace"].(string)
+					saNS, _ := f.Metadata["namespace"].(string)
+					connected = podSA == f.ResourceID && podNS == saNS
+				}
+				if connected {
 					addEdge(wid, nid)
 				}
+			}
+
+			// Phase 11: IRSA bridge — SA → IAMRole.
+			// Source of truth: AssetGraph when available, else iam_role_arn metadata.
+			if assetGraph != nil {
+				for _, e := range assetGraph.EdgesFrom(nid) {
+					if e.Type == graph.EdgeTypeAssumesRole {
+						roleNode := assetGraph.GetNode(e.To)
+						if roleNode != nil {
+							addNode(e.To, roleNode.Name+" (AWS IAM)", "IAMRole")
+							addEdge(nid, e.To)
+						}
+					}
+				}
+			} else if arn, ok := f.Metadata["iam_role_arn"].(string); ok && arn != "" {
+				roleName := extractRoleName(arn)
+				roleID := sanitizeNodeID("IAMRole_" + roleName)
+				addNode(roleID, roleName+" (AWS IAM)", "IAMRole")
+				addEdge(nid, roleID)
 			}
 		}
 
@@ -206,7 +237,7 @@ func BuildAttackGraph(summary models.AuditSummary, findings []models.Finding) Gr
 		}
 	}
 
-	return graph
+	return g
 }
 
 // workloadNodeInfo returns the graph node ID, label, and type for a pod finding.
@@ -227,6 +258,17 @@ func workloadNodeInfo(f *models.Finding) (id, label, nodeType string) {
 	}
 	// Fallback: no workload metadata — use pod resource ID directly.
 	return sanitizeNodeID("Pod_" + f.ResourceID), findingNodeLabel(f), "Pod"
+}
+
+// extractRoleName parses an IAM role ARN and returns the role name component.
+// For a well-formed ARN like "arn:aws:iam::123456789012:role/app-role" it returns
+// "app-role". If the ARN does not contain a slash it returns the full ARN string
+// so that the node label is always non-empty.
+func extractRoleName(arn string) string {
+	if idx := strings.LastIndex(arn, "/"); idx >= 0 {
+		return arn[idx+1:]
+	}
+	return arn
 }
 
 // selectorMatchesPodLabels reports whether every key-value pair in selector

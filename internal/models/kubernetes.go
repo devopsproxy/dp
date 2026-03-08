@@ -53,6 +53,11 @@ type KubernetesServiceAccountData struct {
 	// Annotations is a copy of the ServiceAccount's annotation map.
 	// Used to check for the IRSA annotation (eks.amazonaws.com/role-arn).
 	Annotations map[string]string `json:"annotations,omitempty"`
+
+	// IAMRoleArn is the value of the eks.amazonaws.com/role-arn annotation
+	// when present. Non-empty means the ServiceAccount has been configured for
+	// IRSA and workloads using it can assume the named IAM role.
+	IAMRoleArn string `json:"iam_role_arn,omitempty"`
 }
 
 // KubernetesContainerData holds processed container data consumed by K8s rules.

@@ -999,7 +999,7 @@ func newKubernetesAuditCmd() *cobra.Command {
 			// Skips all normal table/JSON output. Policy enforcement and
 			// exit-code-1 logic are also skipped (graph export is view-only).
 			if attackGraph {
-				graph := dprender.BuildAttackGraph(report.Summary, report.Findings)
+				graph := dprender.BuildAttackGraph(report.Summary, report.Findings, eng.AssetGraph())
 				var graphOut string
 				if graphFormat == "graphviz" {
 					graphOut = dprender.RenderGraphvizGraph(graph)
