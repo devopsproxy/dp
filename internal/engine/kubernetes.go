@@ -32,6 +32,14 @@ type EKSDataCollector interface {
 	CollectEKSData(ctx context.Context, clusterName, region string) (*models.KubernetesEKSData, error)
 }
 
+// IAMAccessResolver resolves the AWS cloud resources reachable by an IAM role.
+// The interface is defined here (engine layer) for dependency inversion —
+// the engine never imports the AWS IAM provider package directly.
+// Nil disables cloud reachability enrichment on the asset graph.
+type IAMAccessResolver interface {
+	ResolveRoleResourceAccess(ctx context.Context, roleArn string) ([]models.RoleCloudAccess, error)
+}
+
 // KubernetesEngine orchestrates a Kubernetes governance audit.
 // It supports provider-aware rule evaluation: core rules always run;
 // EKS-specific rules run only when the cluster is detected as EKS.
@@ -40,6 +48,7 @@ type KubernetesEngine struct {
 	coreRegistry rules.RuleRegistry // always evaluated
 	eksRegistry  rules.RuleRegistry // evaluated only for EKS clusters; may be nil
 	eksCollector EKSDataCollector   // optional; nil disables EKS data collection
+	iamResolver  IAMAccessResolver  // optional; nil disables cloud reachability enrichment
 	policy       *policy.PolicyConfig
 
 	// lastCtx holds ancillary data from the most recent RunAudit call.
@@ -52,6 +61,15 @@ type KubernetesEngine struct {
 // when graph construction failed non-fatally.
 func (e *KubernetesEngine) AssetGraph() *graph.Graph {
 	return e.lastCtx.AssetGraph
+}
+
+// WithIAMResolver injects an optional IAM access resolver into the engine.
+// When set, RunAudit will call ResolveRoleResourceAccess for each IAMRole node
+// in the asset graph and enrich the graph with CAN_ACCESS edges to cloud resources.
+// Returns the engine to allow fluent chaining.
+func (e *KubernetesEngine) WithIAMResolver(resolver IAMAccessResolver) *KubernetesEngine {
+	e.iamResolver = resolver
+	return e
 }
 
 // NewKubernetesEngine constructs a KubernetesEngine with core rules only.
@@ -152,6 +170,29 @@ func (e *KubernetesEngine) RunAudit(ctx context.Context, opts KubernetesAuditOpt
 	// so the CLI layer can retrieve it after RunAudit returns.
 	if ag, agErr := graph.BuildAssetGraph(k8sData); agErr == nil {
 		e.lastCtx.AssetGraph = ag
+	}
+
+	// ── Cloud Reachability Enrichment (Phase 12) ──────────────────────────────
+	// When an IAMAccessResolver is configured, resolve the AWS resources each
+	// IAM role can access and enrich the asset graph with CAN_ACCESS edges.
+	// Non-fatal: resolution failures per role are silently ignored.
+	if e.lastCtx.AssetGraph != nil && e.iamResolver != nil {
+		roleAccess := make(map[string][]models.RoleCloudAccess)
+		for _, node := range e.lastCtx.AssetGraph.Nodes {
+			if node.Type == graph.NodeTypeIAMRole {
+				arn, _ := node.Metadata["arn"]
+				if arn == "" {
+					continue
+				}
+				accesses, resolveErr := e.iamResolver.ResolveRoleResourceAccess(ctx, arn)
+				if resolveErr == nil && len(accesses) > 0 {
+					roleAccess[arn] = accesses
+				}
+			}
+		}
+		if len(roleAccess) > 0 {
+			graph.EnrichWithCloudAccess(e.lastCtx.AssetGraph, roleAccess)
+		}
 	}
 
 	// ── Provider detection ────────────────────────────────────────────────────
