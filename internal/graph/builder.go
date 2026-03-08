@@ -1,0 +1,210 @@
+package graph
+
+import (
+	"strings"
+	"unicode"
+
+	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
+)
+
+// BuildAssetGraph converts collected Kubernetes cluster inventory into an Asset
+// Graph that encodes real infrastructure relationships. It does not consult
+// rule findings or heuristics — every edge reflects an actual API-level
+// relationship in the cluster.
+//
+// Node ID format (consistent with internal/render/graph.go):
+//   - Internet:        "Internet"
+//   - LoadBalancer:    sanitize("LoadBalancer_" + svc.Name)
+//   - Workload:        sanitize(pod.WorkloadKind + "_" + pod.WorkloadName)
+//   - ServiceAccount:  sanitize("ServiceAccount_" + sa.Name)
+//   - IAMRole:         sanitize("IAMRole_" + roleName)
+//   - Namespace:       sanitize("Namespace_" + ns.Name)
+//
+// Edges built:
+//
+//	Internet     → LoadBalancer   (EXPOSES)   — for every LB-type Service
+//	LoadBalancer → Workload       (ROUTES_TO) — selector ∩ pod labels match
+//	Workload     → ServiceAccount (RUNS_AS)   — pod.ServiceAccountName
+//	ServiceAccount → IAMRole      (ASSUMES_ROLE) — eks.amazonaws.com/role-arn
+//	Namespace    → Workload       (CONTAINS)
+//	Namespace    → ServiceAccount (CONTAINS)
+func BuildAssetGraph(cluster *models.KubernetesClusterData) (*Graph, error) {
+	g := NewGraph()
+
+	// ── Internet ─────────────────────────────────────────────────────────────
+	g.AddNode(&Node{ID: "Internet", Type: NodeTypeInternet, Name: "Internet"})
+
+	// ── Namespace nodes ───────────────────────────────────────────────────────
+	for i := range cluster.Namespaces {
+		ns := &cluster.Namespaces[i]
+		nsID := sanitizeID("Namespace_" + ns.Name)
+		g.AddNode(&Node{
+			ID:   nsID,
+			Type: NodeTypeNamespace,
+			Name: ns.Name,
+		})
+	}
+
+	// ── ServiceAccount index: "namespace/name" → *KubernetesServiceAccountData
+	saIndex := make(map[string]*models.KubernetesServiceAccountData, len(cluster.ServiceAccounts))
+	for i := range cluster.ServiceAccounts {
+		sa := &cluster.ServiceAccounts[i]
+		saIndex[sa.Namespace+"/"+sa.Name] = sa
+	}
+
+	// ── Workload and ServiceAccount nodes (from pod records) ─────────────────
+	// Each unique workload_kind+workload_name pair produces one Workload node.
+	// Pod SA bindings produce ServiceAccount nodes and RUNS_AS edges.
+	workloadSeen := make(map[string]bool)
+	saSeen := make(map[string]bool)
+
+	for i := range cluster.Pods {
+		pod := &cluster.Pods[i]
+		if pod.WorkloadKind == "" || pod.WorkloadName == "" {
+			continue
+		}
+		wID := sanitizeID(pod.WorkloadKind + "_" + pod.WorkloadName)
+
+		// Add Workload node (once per unique workload).
+		if !workloadSeen[wID] {
+			workloadSeen[wID] = true
+			g.AddNode(&Node{
+				ID:   wID,
+				Type: NodeTypeWorkload,
+				Name: pod.WorkloadName,
+				Metadata: map[string]string{
+					"kind":      pod.WorkloadKind,
+					"namespace": pod.Namespace,
+				},
+			})
+			// Namespace CONTAINS Workload.
+			nsID := sanitizeID("Namespace_" + pod.Namespace)
+			g.AddEdge(nsID, wID, EdgeTypeContains)
+		}
+
+		// ServiceAccount binding: Workload → ServiceAccount.
+		if pod.ServiceAccountName == "" {
+			continue
+		}
+		sa := saIndex[pod.Namespace+"/"+pod.ServiceAccountName]
+		if sa == nil {
+			continue
+		}
+		saID := sanitizeID("ServiceAccount_" + sa.Name)
+
+		// Add ServiceAccount node (once per unique SA name).
+		if !saSeen[saID] {
+			saSeen[saID] = true
+			g.AddNode(&Node{
+				ID:   saID,
+				Type: NodeTypeServiceAccount,
+				Name: sa.Name,
+				Metadata: map[string]string{
+					"namespace": sa.Namespace,
+				},
+			})
+			// Namespace CONTAINS ServiceAccount.
+			nsID := sanitizeID("Namespace_" + sa.Namespace)
+			g.AddEdge(nsID, saID, EdgeTypeContains)
+
+			// ServiceAccount ASSUMES_ROLE IAMRole (Phase 11 IRSA bridge).
+			if sa.IAMRoleArn != "" {
+				roleName := extractRoleName(sa.IAMRoleArn)
+				roleID := sanitizeID("IAMRole_" + roleName)
+				g.AddNode(&Node{
+					ID:   roleID,
+					Type: NodeTypeIAMRole,
+					Name: roleName,
+					Metadata: map[string]string{
+						"arn": sa.IAMRoleArn,
+					},
+				})
+				g.AddEdge(saID, roleID, EdgeTypeAssumesRole)
+			}
+		}
+
+		// Workload RUNS_AS ServiceAccount.
+		g.AddEdge(wID, saID, EdgeTypeRunsAs)
+	}
+
+	// ── LoadBalancer Service nodes ────────────────────────────────────────────
+	for i := range cluster.Services {
+		svc := &cluster.Services[i]
+		if svc.Type != "LoadBalancer" {
+			continue
+		}
+		svcID := sanitizeID("LoadBalancer_" + svc.Name)
+		g.AddNode(&Node{
+			ID:   svcID,
+			Type: NodeTypeLoadBalancer,
+			Name: svc.Name,
+			Metadata: map[string]string{
+				"namespace": svc.Namespace,
+			},
+		})
+
+		// Internet EXPOSES LoadBalancer.
+		g.AddEdge("Internet", svcID, EdgeTypeExposes)
+
+		// LoadBalancer ROUTES_TO Workload (selector matching).
+		if len(svc.Selector) == 0 {
+			continue
+		}
+		for j := range cluster.Pods {
+			pod := &cluster.Pods[j]
+			if pod.Namespace != svc.Namespace {
+				continue
+			}
+			if pod.WorkloadKind == "" || pod.WorkloadName == "" {
+				continue
+			}
+			if selectorMatches(svc.Selector, pod.Labels) {
+				wID := sanitizeID(pod.WorkloadKind + "_" + pod.WorkloadName)
+				g.AddEdge(svcID, wID, EdgeTypeRoutesTo)
+			}
+		}
+	}
+
+	return g, nil
+}
+
+// selectorMatches reports whether all key-value pairs in selector are present
+// in podLabels. An empty selector returns false.
+func selectorMatches(selector, podLabels map[string]string) bool {
+	if len(selector) == 0 {
+		return false
+	}
+	for k, v := range selector {
+		if podLabels[k] != v {
+			return false
+		}
+	}
+	return true
+}
+
+// extractRoleName returns the role name component from an IAM role ARN.
+// For "arn:aws:iam::123456789012:role/app-role" it returns "app-role".
+// Falls back to the full string when no slash is present.
+func extractRoleName(arn string) string {
+	if idx := strings.LastIndex(arn, "/"); idx >= 0 {
+		return arn[idx+1:]
+	}
+	return arn
+}
+
+// sanitizeID replaces characters that are not alphanumeric or underscore with
+// an underscore to produce valid Mermaid / Graphviz node identifiers.
+// This function mirrors the sanitizeNodeID logic in internal/render/graph.go
+// so that builder-produced node IDs are consistent with render-produced IDs.
+func sanitizeID(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' {
+			b.WriteRune(r)
+		} else {
+			b.WriteRune('_')
+		}
+	}
+	return b.String()
+}

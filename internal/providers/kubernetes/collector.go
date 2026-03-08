@@ -309,6 +309,7 @@ func collectServiceAccounts(ctx context.Context, clientset k8sclient.Interface) 
 			Namespace:                    sa.Namespace,
 			AutomountServiceAccountToken: sa.AutomountServiceAccountToken,
 			Annotations:                  annotations,
+			IAMRoleArn:                   annotations["eks.amazonaws.com/role-arn"],
 		})
 	}
 	return accounts, nil

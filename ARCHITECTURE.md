@@ -153,6 +153,7 @@ The correlation engine lives in `internal/engine/kubernetes_correlation.go` and 
 | 10.2 | Layered fan-out graph — all entities per layer; single-parent rule prevents M×N explosion | render/graph.go |
 | 10.3 | Structural graph — topology-aware edges via Service selector→Pod labels and Pod→SA name; `annotateStructuralTopology` in engine; no heuristics | render/graph.go, engine/kubernetes.go |
 | 10.4 | Workload-collapsed graph — pods replaced by parent workload nodes (Deployment/StatefulSet/…); ownerReferences resolved in collector; multiple pods of same workload → single node | render/graph.go, collector.go, engine/kubernetes.go |
+| 11 | IRSA Identity Bridge — `ServiceAccount → IAMRole` edge when SA has `eks.amazonaws.com/role-arn` annotation; `extractRoleName` ARN parser; `iam_role_arn` metadata stamped by engine | render/graph.go, engine/kubernetes.go, collector.go |
 
 ### Namespace Classification
 
@@ -362,7 +363,8 @@ Edges are built from **real Kubernetes relationships** and pods are **collapsed 
 | `Internet → LoadBalancer` | Always — every LB finding in the path |
 | `LoadBalancer → Workload` | Only when `Metadata["service_selector"]` matches `Metadata["pod_labels"]`; edge targets the Workload node (not the individual pod) |
 | `Workload → ServiceAccount` | Only when `Metadata["pod_service_account"]` == SA finding's `ResourceID` in the same namespace |
-| `IAMRole / Cluster / CloudResource` | Node added as context; no structural edge (AWS/IAM topology not yet available) |
+| `Workload → ServiceAccount → IAMRole` | Phase 11: when SA finding carries `iam_role_arn` metadata, an `IAMRole` node is added and a `ServiceAccount → IAMRole` edge is emitted |
+| `IAMRole / Cluster / CloudResource` | Node added as context; cluster/cloud-resource nodes have no structural edges |
 
 **Workload collapsing (Phase 10.4)**: pod findings with `workload_kind`/`workload_name` metadata produce a single `{Kind}_{Name}` node. Multiple pods belonging to the same Deployment collapse into one `Deployment_*` node. Node IDs are sanitized with `sanitizeNodeID`. When workload metadata is absent (e.g., no ownerReferences resolved), a `Pod_{resourceID}` fallback node is used.
 
@@ -378,6 +380,9 @@ Edges are built from **real Kubernetes relationships** and pods are **collapsed 
 - `Metadata["workload_kind"]` (`string`) — for node type (Deployment, StatefulSet, …)
 - `Metadata["workload_name"]` (`string`) — for node ID / label
 - `Metadata["service_selector"]` (`map[string]string`) — on `K8S_SERVICE` findings
+- `Metadata["iam_role_arn"]` (`string`) — Phase 11: on `K8S_SERVICEACCOUNT` findings when the SA has the `eks.amazonaws.com/role-arn` IRSA annotation
+
+**Phase 11 — IRSA Identity Bridge**: when a `K8S_SERVICEACCOUNT` finding carries `iam_role_arn` metadata, `BuildAttackGraph` creates an `IAMRole` node (label: `{roleName} (AWS IAM)`) and emits a `ServiceAccount → IAMRole` edge. The role name is extracted from the ARN via `extractRoleName` (last `/`-delimited segment). Multiple SAs sharing the same IAM role will converge on the same `IAMRole_{roleName}` node via `nodeSet` deduplication.
 
 **Selector matching** (`selectorMatchesPodLabels`): all selector key-value pairs must be present in pod labels; empty/nil selector → false (no spurious edges for selector-less services).
 
@@ -396,7 +401,7 @@ Edges are built from **real Kubernetes relationships** and pods are **collapsed 
 
 ### Example Mermaid Output
 
-Workload-collapsed graph (Phase 10.4 — selector, SA name, and ownerReferences matched):
+Workload-collapsed graph with IRSA bridge (Phase 10.4 + Phase 11 — selector, SA name, ownerReferences, and IRSA annotation matched):
 
 ```mermaid
 graph TD
@@ -405,10 +410,12 @@ Internet["Internet"]
 LoadBalancer_portainer["portainer (infra)"]
 Deployment_portainer["portainer (infra)"]
 ServiceAccount_portainer_sa_clusteradmin["portainer-sa-clusteradmin (infra)"]
+IAMRole_app_role["app-role (AWS IAM)"]
 
 Internet --> LoadBalancer_portainer
 LoadBalancer_portainer --> Deployment_portainer
 Deployment_portainer --> ServiceAccount_portainer_sa_clusteradmin
+ServiceAccount_portainer_sa_clusteradmin --> IAMRole_app_role
 ```
 
 Edges exist only when:
@@ -416,6 +423,7 @@ Edges exist only when:
 - pods are owned by `Deployment/portainer` (resolved via ownerReferences → ReplicaSet → Deployment)
 - pods declare `spec.serviceAccountName: portainer-sa-clusteradmin`
 - Multiple replicas of the same Deployment collapse into a single `Deployment_portainer` node
+- SA has `eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/app-role` (Phase 11 IRSA bridge)
 
 ### Example Graphviz Output
 
@@ -433,12 +441,63 @@ Pod_app_pod -> ServiceAccount_default
 }
 ```
 
+## Asset Graph Engine (Phase 11.5)
+
+`internal/graph` is a reusable internal graph engine that models infrastructure
+relationships across Kubernetes and AWS resources. It is not yet exposed via CLI
+output; it serves as the foundation for attack path reasoning, AI explanations,
+drift detection, and future SaaS backend integration.
+
+### Package structure
+
+| File | Purpose |
+|------|---------|
+| `types.go` | `NodeType`, `EdgeType`, `Node`, `Edge`, `Graph` types |
+| `graph.go` | `NewGraph`, `AddNode`, `AddEdge`, `GetNode`, `Neighbors`, `EdgesFrom`, `EdgesTo`, `HasEdge` |
+| `builder.go` | `BuildAssetGraph(*models.KubernetesClusterData) (*Graph, error)` |
+| `graph_test.go` | 5 unit tests |
+
+### Node types
+`Internet` · `LoadBalancer` · `Service` · `Workload` · `ServiceAccount` · `IAMRole` · `Cluster` · `Namespace`
+
+### Edge types
+| Type | Meaning |
+|------|---------|
+| `EXPOSES` | Internet → LoadBalancer (publicly reachable) |
+| `ROUTES_TO` | LoadBalancer → Workload (selector match) |
+| `RUNS_AS` | Workload → ServiceAccount (pod binding) |
+| `ASSUMES_ROLE` | ServiceAccount → IAMRole (IRSA annotation) |
+| `CONTAINS` | Namespace → Workload / Namespace → ServiceAccount |
+| `PART_OF` | Reserved for future inverse containment use |
+
+### Integration
+
+`KubernetesEngine.RunAudit` calls `graph.BuildAssetGraph(k8sData)` after `convertClusterData`
+and stores the result in `EngineContext.AssetGraph`. The graph is accessible to callers via
+`engine.AssetGraph()` after `RunAudit` returns.
+
+`BuildAttackGraph` in `internal/render/graph.go` accepts `*graph.Graph` as its third parameter.
+When non-nil, the AssetGraph is used as the **source of truth** for edge derivation:
+`LoadBalancer→Workload` via `ROUTES_TO` edges, `Workload→ServiceAccount` via `RUNS_AS` edges,
+and `ServiceAccount→IAMRole` via `ASSUMES_ROLE` edges. When nil, the legacy finding-metadata
+approach is used (identical output when the AssetGraph is built from the same cluster data).
+
+Node IDs in the AssetGraph use the same `sanitizeID` logic as `internal/render/graph.go`,
+ensuring consistent cross-package ID matching without shared state.
+
+### Phase 11.5 in the Phase Overview table
+
+| Phase | Description | Files |
+|-------|-------------|-------|
+| 11.5 | Internal Asset Graph engine — `NodeType`/`EdgeType`/`Node`/`Edge`/`Graph`; `BuildAssetGraph`; `EngineContext` stored on `KubernetesEngine`; `BuildAttackGraph` uses AssetGraph as edge source of truth | internal/graph/, engine/kubernetes.go, render/graph.go |
+
 ## Engine Layering Philosophy
 
 1. **Providers** — data only; no analysis
 2. **Rules** — deterministic evaluation; no I/O
 3. **Engine** — orchestrates collect → evaluate → merge → correlate → filter → sort → report
-4. **Render** — pure presentation layer; consumes `AuditReport`; no business logic (`internal/render`)
+4. **Asset Graph** — topology model built from raw cluster data; feeds render and future AI layers (`internal/graph`)
+5. **Render** — pure presentation layer; consumes `AuditReport` + `AssetGraph`; no business logic (`internal/render`)
 5. **CLI** — wires flags to engine and render; no business logic
 6. **LLM** — optional summarization only; never produces findings
 

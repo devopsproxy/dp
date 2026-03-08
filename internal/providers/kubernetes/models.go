@@ -68,6 +68,11 @@ type ServiceAccountInfo struct {
 	// Annotations is a copy of the ServiceAccount's annotation map.
 	// Used to check for the IRSA annotation (eks.amazonaws.com/role-arn).
 	Annotations map[string]string
+
+	// IAMRoleArn is the value of the eks.amazonaws.com/role-arn annotation
+	// when present. Non-empty means the ServiceAccount has been configured for
+	// IRSA and workloads using it can assume the named IAM role.
+	IAMRoleArn string
 }
 
 // ContainerInfo holds per-container security and resource request data.

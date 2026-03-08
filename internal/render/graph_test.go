@@ -66,7 +66,7 @@ func TestBuildAttackGraph_HappyPath(t *testing.T) {
 		},
 	})
 
-	g := BuildAttackGraph(summary, findings)
+	g := BuildAttackGraph(summary, findings, nil)
 
 	// Internet node must be present.
 	if !hasNodeType(g, "Internet") {
@@ -109,7 +109,7 @@ func TestBuildAttackGraph_HappyPath(t *testing.T) {
 // TestBuildAttackGraph_EmptyPaths verifies that an empty summary produces an
 // empty graph (no nodes, no edges, no panic).
 func TestBuildAttackGraph_EmptyPaths(t *testing.T) {
-	g := BuildAttackGraph(models.AuditSummary{}, nil)
+	g := BuildAttackGraph(models.AuditSummary{}, nil, nil)
 
 	if len(g.Nodes) != 0 {
 		t.Errorf("expected 0 nodes; got %d", len(g.Nodes))
@@ -145,7 +145,7 @@ func TestGraphNodeDeduplication(t *testing.T) {
 		},
 	})
 
-	g := BuildAttackGraph(summary, findings)
+	g := BuildAttackGraph(summary, findings, nil)
 
 	// Count nodes by ID — no duplicate IDs allowed.
 	seen := make(map[string]int)
@@ -184,7 +184,7 @@ func TestMermaidOutputValid(t *testing.T) {
 		},
 	})
 
-	g := BuildAttackGraph(summary, findings)
+	g := BuildAttackGraph(summary, findings, nil)
 	out := RenderMermaidGraph(g)
 
 	if !strings.HasPrefix(out, "graph TD") {
@@ -218,7 +218,7 @@ func TestGraphvizOutputValid(t *testing.T) {
 		},
 	})
 
-	g := BuildAttackGraph(summary, findings)
+	g := BuildAttackGraph(summary, findings, nil)
 	out := RenderGraphvizGraph(g)
 
 	if !strings.HasPrefix(out, "digraph AttackPath {") {
@@ -315,7 +315,7 @@ func TestGraphBuilder_ServiceSelectorMatching(t *testing.T) {
 		},
 	})
 
-	g := BuildAttackGraph(summary, findings)
+	g := BuildAttackGraph(summary, findings, nil)
 
 	lbID := sanitizeNodeID("LoadBalancer_portainer")
 	matchedWID := sanitizeNodeID("Deployment_portainer")
@@ -371,7 +371,7 @@ func TestGraphBuilder_PodServiceAccountEdge(t *testing.T) {
 		},
 	})
 
-	g := BuildAttackGraph(summary, findings)
+	g := BuildAttackGraph(summary, findings, nil)
 
 	wID := sanitizeNodeID("Deployment_portainer")
 	matchedSAID := sanitizeNodeID("ServiceAccount_portainer-sa-clusteradmin")
@@ -419,7 +419,7 @@ func TestGraphBuilder_NoSpuriousEdgesWithoutMetadata(t *testing.T) {
 		},
 	})
 
-	g := BuildAttackGraph(summary, findings)
+	g := BuildAttackGraph(summary, findings, nil)
 
 	lbID := sanitizeNodeID("LoadBalancer_web-svc")
 	podID := sanitizeNodeID("Pod_app-pod") // fallback: no workload metadata
@@ -476,7 +476,7 @@ func TestGraphBuilder_WorkloadCollapse(t *testing.T) {
 		},
 	})
 
-	g := BuildAttackGraph(summary, findings)
+	g := BuildAttackGraph(summary, findings, nil)
 
 	// Count Deployment nodes — must be exactly one despite 3 pod findings.
 	deploymentCount := 0
@@ -544,7 +544,7 @@ func TestGraphBuilder_WorkloadServiceAccountEdge(t *testing.T) {
 		},
 	})
 
-	g := BuildAttackGraph(summary, findings)
+	g := BuildAttackGraph(summary, findings, nil)
 
 	wID := sanitizeNodeID("Deployment_api")
 	saID := sanitizeNodeID("ServiceAccount_api-sa")
@@ -563,6 +563,83 @@ func TestGraphBuilder_WorkloadServiceAccountEdge(t *testing.T) {
 				t.Errorf("expected node type 'Deployment'; got %q", n.Type)
 			}
 			break
+		}
+	}
+}
+
+// ── TestGraphBuilder_ServiceAccountToIAMRole ──────────────────────────────────
+
+// TestGraphBuilder_ServiceAccountToIAMRole verifies that when a ServiceAccount
+// finding carries iam_role_arn metadata an IAMRole node is created and a
+// ServiceAccount → IAMRole edge is added.
+func TestGraphBuilder_ServiceAccountToIAMRole(t *testing.T) {
+	const arn = "arn:aws:iam::123456789012:role/app-role"
+
+	findings := []models.Finding{
+		makeLBFinding("f1", "api-svc", "prod", map[string]string{"app": "api"}),
+		makeWorkloadPodFinding("f2", "api-pod", "prod", "api-sa",
+			map[string]string{"app": "api"}, "Deployment", "api"),
+		makeFinding("f3", "EKS_SERVICEACCOUNT_NO_IRSA", "api-sa", map[string]any{
+			"namespace":    "prod",
+			"iam_role_arn": arn,
+		}),
+	}
+
+	summary := makeSummaryWithPath([]models.AttackPath{
+		{
+			Score:      98,
+			Layers:     []string{"Network Exposure", "Workload Privilege", "Identity Weakness"},
+			FindingIDs: []string{"f1", "f2", "f3"},
+		},
+	})
+
+	g := BuildAttackGraph(summary, findings, nil)
+
+	saID := sanitizeNodeID("ServiceAccount_api-sa")
+	roleID := sanitizeNodeID("IAMRole_app-role")
+
+	// IAMRole node must exist with correct label and type.
+	var roleNode *GraphNode
+	for i := range g.Nodes {
+		if g.Nodes[i].ID == roleID {
+			roleNode = &g.Nodes[i]
+			break
+		}
+	}
+	if roleNode == nil {
+		t.Fatalf("expected IAMRole node %q; not found in graph", roleID)
+	}
+	if roleNode.Type != "IAMRole" {
+		t.Errorf("expected node type 'IAMRole'; got %q", roleNode.Type)
+	}
+	if !strings.Contains(roleNode.Label, "app-role") {
+		t.Errorf("IAMRole node label %q should contain role name 'app-role'", roleNode.Label)
+	}
+	if !strings.Contains(roleNode.Label, "AWS IAM") {
+		t.Errorf("IAMRole node label %q should contain 'AWS IAM'", roleNode.Label)
+	}
+
+	// ServiceAccount → IAMRole edge must exist.
+	if !hasEdge(g, saID, roleID) {
+		t.Errorf("expected edge %s → %s (ServiceAccount → IAMRole)", saID, roleID)
+	}
+}
+
+// TestExtractRoleName verifies ARN parsing for various formats.
+func TestExtractRoleName(t *testing.T) {
+	cases := []struct {
+		arn  string
+		want string
+	}{
+		{"arn:aws:iam::123456789012:role/app-role", "app-role"},
+		{"arn:aws:iam::123456789012:role/path/nested-role", "nested-role"},
+		{"not-an-arn", "not-an-arn"},
+		{"", ""},
+	}
+	for _, tc := range cases {
+		got := extractRoleName(tc.arn)
+		if got != tc.want {
+			t.Errorf("extractRoleName(%q) = %q; want %q", tc.arn, got, tc.want)
 		}
 	}
 }

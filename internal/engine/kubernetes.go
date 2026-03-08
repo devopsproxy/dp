@@ -6,11 +6,23 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/graph"
 	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
 	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/policy"
 	kube "github.com/pankaj-dahiya-devops/Devops-proxy/internal/providers/kubernetes"
 	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/rules"
 )
+
+// EngineContext holds ancillary data produced during a single RunAudit call.
+// It is stored on the engine so callers can access it after RunAudit returns
+// without changing the RunAudit return signature.
+type EngineContext struct {
+	// AssetGraph is the infrastructure relationship graph built from the
+	// collected cluster inventory. It encodes Service→Workload routing,
+	// Workload→ServiceAccount bindings, and ServiceAccount→IAMRole IRSA links.
+	// Nil when no audit has been run yet or when graph construction failed.
+	AssetGraph *graph.Graph
+}
 
 // EKSDataCollector collects EKS-specific cluster configuration from the AWS EKS API.
 // The interface is defined here (engine layer) so the engine remains independent
@@ -29,6 +41,17 @@ type KubernetesEngine struct {
 	eksRegistry  rules.RuleRegistry // evaluated only for EKS clusters; may be nil
 	eksCollector EKSDataCollector   // optional; nil disables EKS data collection
 	policy       *policy.PolicyConfig
+
+	// lastCtx holds ancillary data from the most recent RunAudit call.
+	// Callers access it via AssetGraph() after RunAudit returns.
+	lastCtx EngineContext
+}
+
+// AssetGraph returns the infrastructure relationship graph built during the
+// most recent RunAudit call. Returns nil when no audit has completed yet or
+// when graph construction failed non-fatally.
+func (e *KubernetesEngine) AssetGraph() *graph.Graph {
+	return e.lastCtx.AssetGraph
 }
 
 // NewKubernetesEngine constructs a KubernetesEngine with core rules only.
@@ -121,6 +144,15 @@ func (e *KubernetesEngine) RunAudit(ctx context.Context, opts KubernetesAuditOpt
 	}
 
 	k8sData := convertClusterData(clusterData)
+
+	// ── Asset Graph (Phase 11.5) ──────────────────────────────────────────────
+	// Build the internal infrastructure relationship graph from the collected
+	// cluster inventory. Non-fatal: a graph build failure is ignored and the
+	// engine continues with a nil AssetGraph. The graph is stored on the engine
+	// so the CLI layer can retrieve it after RunAudit returns.
+	if ag, agErr := graph.BuildAssetGraph(k8sData); agErr == nil {
+		e.lastCtx.AssetGraph = ag
+	}
 
 	// ── Provider detection ────────────────────────────────────────────────────
 	k8sData.ClusterProvider = detectClusterProvider(k8sData.Nodes)
@@ -358,6 +390,11 @@ func annotateStructuralTopology(findings []models.Finding, k8sData *models.Kuber
 		s := &k8sData.Services[i]
 		svcIndex[s.Namespace+"/"+s.Name] = s
 	}
+	saIndex := make(map[string]*models.KubernetesServiceAccountData, len(k8sData.ServiceAccounts))
+	for i := range k8sData.ServiceAccounts {
+		sa := &k8sData.ServiceAccounts[i]
+		saIndex[sa.Namespace+"/"+sa.Name] = sa
+	}
 
 	for i := range findings {
 		f := &findings[i]
@@ -387,6 +424,12 @@ func annotateStructuralTopology(findings []models.Finding, k8sData *models.Kuber
 					sel[k] = v
 				}
 				f.Metadata["service_selector"] = sel
+			}
+		case models.ResourceK8sServiceAccount:
+			if sa, ok := saIndex[ns+"/"+f.ResourceID]; ok {
+				if sa.IAMRoleArn != "" {
+					f.Metadata["iam_role_arn"] = sa.IAMRoleArn
+				}
 			}
 		}
 	}
@@ -484,6 +527,7 @@ func convertClusterData(data *kube.ClusterData) *models.KubernetesClusterData {
 			Namespace:                    sa.Namespace,
 			AutomountServiceAccountToken: sa.AutomountServiceAccountToken,
 			Annotations:                  saAnnotations,
+			IAMRoleArn:                   sa.IAMRoleArn,
 		})
 	}
 	return k
