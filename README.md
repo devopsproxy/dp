@@ -560,6 +560,37 @@ When no attack path matches the requested score:
 
 In explain mode the normal audit table, policy enforcement, and exit-code-1 logic are **skipped** — the command exits 0 after rendering the explanation.
 
+#### Filter Attack Paths by Severity (Phase 9)
+
+Use `--min-attack-score <int>` to restrict the rendered output to attack paths at or above a given score. Requires `--show-risk-chains`. Filtering is **rendering-layer only** — `summary.risk_score`, `summary.total_findings`, and the full findings list are never modified.
+
+```bash
+# Show only attack paths with score >= 95 (paths 98 and 96 pass; 94, 92, 90 are hidden)
+./dp kubernetes audit --show-risk-chains --min-attack-score 95
+
+# JSON output: attack_paths filtered; risk_score unchanged
+./dp kubernetes audit --show-risk-chains --min-attack-score 95 --output json | jq '.summary | {attack_paths, risk_score}'
+
+# No paths meet the threshold — prints notification, then shows risk chains + other findings
+./dp kubernetes audit --show-risk-chains --min-attack-score 99
+
+# Combine with --explain-path: explain score must be >= min-attack-score
+./dp kubernetes audit --show-risk-chains --min-attack-score 95 --explain-path 96
+./dp kubernetes audit --show-risk-chains --min-attack-score 95 --explain-path 92  # → threshold error
+```
+
+When no attack path meets the threshold (table mode):
+
+```
+No attack paths with score >= 99
+```
+
+When `--explain-path` score is below the `--min-attack-score` threshold:
+
+```
+Requested attack path score 92 is below --min-attack-score threshold
+```
+
 #### Filtering by Risk Score (Phase 4C)
 
 Use `--min-risk-score` to narrow the report to only findings that participate in a risk chain at or above the given threshold:
@@ -1007,6 +1038,7 @@ Unit tests across rule engine, policy layer, data-protection rules, security rul
 - [x] Phase 7A: PATH 4 (score 94) — EKS Control Plane Exposure; cluster-scoped; requires `EKS_PUBLIC_ENDPOINT_ENABLED` + (`EKS_NODE_ROLE_OVERPERMISSIVE` OR `EKS_IAM_ROLE_WILDCARD`) + `EKS_CONTROL_PLANE_LOGGING_DISABLED`; strict cluster-only filtering; 7 new tests
 - [x] Phase 7B: PATH 5 (score 96) — Cross-Cloud Identity Escalation; per-namespace + cluster IAM; requires `K8S_SERVICE_PUBLIC_LOADBALANCER` + privilege + identity weakness + cluster (`EKS_NODE_ROLE_OVERPERMISSIVE` OR `EKS_IAM_ROLE_WILDCARD`); strict 8-rule filtering; 8 new tests
 - [x] Phase 8: `--explain-path <score>` flag; new `internal/render` package (`FindPathByScore`, `RenderAttackPathExplanation`, `WriteExplainJSON`); strict filtering from `path.FindingIDs`; early return in explain mode (exit 0, no table/policy/exit-code-1); requires `--show-risk-chains`
+- [x] Phase 9: `--min-attack-score <int>` flag; `FilterAttackPaths` in render package; post-correlation rendering filter only — no engine/scoring changes; renderReport copy pattern (original never mutated); explain-below-threshold guard; requires `--show-risk-chains`
 - [ ] LLM summarization: findings → human-readable report
 - [ ] Terraform plan analysis module
 - [ ] Azure provider module

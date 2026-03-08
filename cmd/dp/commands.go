@@ -864,6 +864,24 @@ func validateExplainFlags(explainScore int, showRiskChains bool) error {
 	return nil
 }
 
+// validateMinAttackScoreFlags returns an error when --min-attack-score is set
+// without --show-risk-chains. Attack paths are only computed when ShowRiskChains
+// is enabled, so --min-attack-score requires it as a prerequisite.
+func validateMinAttackScoreFlags(minAttackScore int, showRiskChains bool) error {
+	if minAttackScore > 0 && !showRiskChains {
+		return fmt.Errorf("--min-attack-score requires --show-risk-chains")
+	}
+	return nil
+}
+
+// explainBelowThreshold reports whether the requested --explain-path score
+// falls below the active --min-attack-score threshold. When true the explain
+// request is rejected with an informative message — the score is filtered out
+// by the user-configured minimum.
+func explainBelowThreshold(explainScore, minAttackScore int) bool {
+	return explainScore > 0 && minAttackScore > 0 && explainScore < minAttackScore
+}
+
 // newKubernetesAuditCmd implements dp kubernetes audit.
 func newKubernetesAuditCmd() *cobra.Command {
 	var (
@@ -875,8 +893,9 @@ func newKubernetesAuditCmd() *cobra.Command {
 		color          bool
 		excludeSystem  bool
 		minRiskScore   int
-		showRiskChains bool
-		explainScore   int
+		showRiskChains  bool
+		explainScore    int
+		minAttackScore  int
 	)
 
 	cmd := &cobra.Command{
@@ -890,6 +909,9 @@ func newKubernetesAuditCmd() *cobra.Command {
 			}
 
 			if err := validateExplainFlags(explainScore, showRiskChains); err != nil {
+				return err
+			}
+			if err := validateMinAttackScoreFlags(minAttackScore, showRiskChains); err != nil {
 				return err
 			}
 
@@ -932,9 +954,23 @@ func newKubernetesAuditCmd() *cobra.Command {
 				}
 			}
 
+			// Filter attack paths for rendering only; the original report is
+			// never mutated — risk_score, findings, and all other fields stay intact.
+			filteredPaths := dprender.FilterAttackPaths(report.Summary.AttackPaths, minAttackScore)
+
+			// Build a render-only copy of the report with filtered attack paths.
+			renderSummary := report.Summary
+			renderSummary.AttackPaths = filteredPaths
+			renderReport := *report
+			renderReport.Summary = renderSummary
+
 			// explain-path mode: render a single attack path and exit early.
 			// No normal table, no policy enforcement, no exit-code-1 logic.
 			if explainScore > 0 {
+				if explainBelowThreshold(explainScore, minAttackScore) {
+					fmt.Fprintf(os.Stdout, "Requested attack path score %d is below --min-attack-score threshold\n", explainScore)
+					return nil
+				}
 				path := dprender.FindPathByScore(report.Summary.AttackPaths, explainScore)
 				if outputFmt == "json" {
 					return dprender.WriteExplainJSON(os.Stdout, path, explainScore)
@@ -947,7 +983,13 @@ func newKubernetesAuditCmd() *cobra.Command {
 				return nil
 			}
 
-			if err := renderKubernetesAuditOutput(os.Stdout, report, outputFmt, summary, color, showRiskChains); err != nil {
+			// In table mode, notify when the score filter removed all attack paths.
+			if minAttackScore > 0 && len(report.Summary.AttackPaths) > 0 &&
+				len(filteredPaths) == 0 && outputFmt != "json" {
+				fmt.Fprintf(os.Stdout, "No attack paths with score >= %d\n", minAttackScore)
+			}
+
+			if err := renderKubernetesAuditOutput(os.Stdout, &renderReport, outputFmt, summary, color, showRiskChains); err != nil {
 				return err
 			}
 
@@ -974,6 +1016,7 @@ func newKubernetesAuditCmd() *cobra.Command {
 	cmd.Flags().IntVar(&minRiskScore, "min-risk-score", 0, "Only include findings with a risk chain score >= this value (0 = include all)")
 	cmd.Flags().BoolVar(&showRiskChains, "show-risk-chains", false, "Group findings by risk chain in table output; add risk_chains to JSON output")
 	cmd.Flags().IntVar(&explainScore, "explain-path", 0, "Print structured breakdown of the attack path with this score (requires --show-risk-chains)")
+	cmd.Flags().IntVar(&minAttackScore, "min-attack-score", 0, "Only render attack paths with score >= this value (requires --show-risk-chains)")
 
 	return cmd
 }
