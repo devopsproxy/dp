@@ -151,6 +151,7 @@ func (e *KubernetesEngine) RunAudit(ctx context.Context, opts KubernetesAuditOpt
 
 	merged := mergeFindings(raw)
 	annotateNamespaceType(merged)
+	annotateStructuralTopology(merged, k8sData) // Phase 10.3: stamp pod labels, SA name, service selector
 	if opts.ExcludeSystem {
 		merged = excludeSystemFindings(merged)
 	}
@@ -327,6 +328,70 @@ func excludeSystemFindings(findings []models.Finding) []models.Finding {
 	return out
 }
 
+// annotateStructuralTopology stamps structural Kubernetes relationship metadata
+// onto findings so the graph builder can draw real infrastructure edges instead
+// of heuristic ones. It must be called after annotateNamespaceType (so that
+// Metadata["namespace"] is already set on namespace-scoped findings).
+//
+// Stamped keys (on K8S_POD findings):
+//
+//	"pod_service_account" (string)        — pod's declared serviceAccountName
+//	"pod_labels"          (map[string]string) — pod's label map (for LB selector matching)
+//	"workload_kind"       (string)        — top-level controller kind (Deployment, StatefulSet, …)
+//	"workload_name"       (string)        — top-level controller name
+//
+// Stamped keys (on K8S_SERVICE findings):
+//
+//	"service_selector"    (map[string]string) — Service's spec.selector
+//
+// These keys are consumed exclusively by the rendering layer (render/graph.go)
+// and never affect scoring, correlation, or policy enforcement.
+func annotateStructuralTopology(findings []models.Finding, k8sData *models.KubernetesClusterData) {
+	// Build lookup indexes: "namespace/name" → data.
+	podIndex := make(map[string]*models.KubernetesPodData, len(k8sData.Pods))
+	for i := range k8sData.Pods {
+		p := &k8sData.Pods[i]
+		podIndex[p.Namespace+"/"+p.Name] = p
+	}
+	svcIndex := make(map[string]*models.KubernetesServiceData, len(k8sData.Services))
+	for i := range k8sData.Services {
+		s := &k8sData.Services[i]
+		svcIndex[s.Namespace+"/"+s.Name] = s
+	}
+
+	for i := range findings {
+		f := &findings[i]
+		if f.Metadata == nil {
+			f.Metadata = make(map[string]any)
+		}
+		ns, _ := f.Metadata["namespace"].(string)
+
+		switch f.ResourceType {
+		case models.ResourceK8sPod:
+			if pod, ok := podIndex[ns+"/"+f.ResourceID]; ok {
+				f.Metadata["pod_service_account"] = pod.ServiceAccountName
+				// Copy the label map so findings don't share the underlying map.
+				labels := make(map[string]string, len(pod.Labels))
+				for k, v := range pod.Labels {
+					labels[k] = v
+				}
+				f.Metadata["pod_labels"] = labels
+				// Phase 10.4: workload owner for graph node collapsing.
+				f.Metadata["workload_kind"] = pod.WorkloadKind
+				f.Metadata["workload_name"] = pod.WorkloadName
+			}
+		case models.ResourceK8sService:
+			if svc, ok := svcIndex[ns+"/"+f.ResourceID]; ok {
+				sel := make(map[string]string, len(svc.Selector))
+				for k, v := range svc.Selector {
+					sel[k] = v
+				}
+				f.Metadata["service_selector"] = sel
+			}
+		}
+	}
+}
+
 // convertClusterData translates the provider-layer ClusterData into the
 // engine-layer KubernetesClusterData used by rule evaluation.
 func convertClusterData(data *kube.ClusterData) *models.KubernetesClusterData {
@@ -359,6 +424,10 @@ func convertClusterData(data *kube.ClusterData) *models.KubernetesClusterData {
 		})
 	}
 	for _, pod := range data.Pods {
+		podLabels := make(map[string]string, len(pod.Labels))
+		for key, val := range pod.Labels {
+			podLabels[key] = val
+		}
 		pd := models.KubernetesPodData{
 			Name:               pod.Name,
 			Namespace:          pod.Namespace,
@@ -366,6 +435,9 @@ func convertClusterData(data *kube.ClusterData) *models.KubernetesClusterData {
 			HostPID:            pod.HostPID,
 			HostIPC:            pod.HostIPC,
 			ServiceAccountName: pod.ServiceAccountName,
+			Labels:             podLabels,
+			WorkloadKind:       pod.WorkloadKind,
+			WorkloadName:       pod.WorkloadName,
 		}
 		for _, c := range pod.Containers {
 			var addedCaps []string
@@ -390,11 +462,16 @@ func convertClusterData(data *kube.ClusterData) *models.KubernetesClusterData {
 		for key, val := range svc.Annotations {
 			annotations[key] = val
 		}
+		selector := make(map[string]string, len(svc.Selector))
+		for key, val := range svc.Selector {
+			selector[key] = val
+		}
 		k.Services = append(k.Services, models.KubernetesServiceData{
 			Name:        svc.Name,
 			Namespace:   svc.Namespace,
 			Type:        svc.Type,
 			Annotations: annotations,
+			Selector:    selector,
 		})
 	}
 	for _, sa := range data.ServiceAccounts {

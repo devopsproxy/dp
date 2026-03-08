@@ -148,6 +148,11 @@ The correlation engine lives in `internal/engine/kubernetes_correlation.go` and 
 | 7B | PATH 5 — Cross-Cloud Identity Escalation | kubernetes_correlation.go |
 | 8 | `--explain-path <score>` — attack path explanation renderer | render/explain.go |
 | 9 | `--min-attack-score <int>` — post-correlation attack path filter | render/min_attack_score.go |
+| 10 | `--attack-graph` — graph export (Mermaid / Graphviz); `BuildAttackGraph` (strict linear chain) | render/graph.go |
+| 10.1 | Fix edge explosion — strict one-representative-per-layer linear chain | render/graph.go |
+| 10.2 | Layered fan-out graph — all entities per layer; single-parent rule prevents M×N explosion | render/graph.go |
+| 10.3 | Structural graph — topology-aware edges via Service selector→Pod labels and Pod→SA name; `annotateStructuralTopology` in engine; no heuristics | render/graph.go, engine/kubernetes.go |
+| 10.4 | Workload-collapsed graph — pods replaced by parent workload nodes (Deployment/StatefulSet/…); ownerReferences resolved in collector; multiple pods of same workload → single node | render/graph.go, collector.go, engine/kubernetes.go |
 
 ### Namespace Classification
 
@@ -311,6 +316,122 @@ renderReport.Summary = renderSummary        // original report unchanged
 | `--explain-path` | 0 | requires `--show-risk-chains` | early-return explain mode |
 
 When `--explain-path` and `--min-attack-score` are both set: `explainBelowThreshold(explainScore, minAttackScore)` guards the explain dispatch — if the requested score falls below the threshold, a "below threshold" message is printed and the command exits 0.
+
+## Attack Path Graph Export (Phase 10)
+
+Graph export renders the fully-computed `AuditSummary.AttackPaths` as a directed graph. It operates **after** all correlation and filtering logic — the engine, scoring, and findings list are never touched.
+
+### Pipeline
+
+```
+Findings
+ ↓
+Correlation Engine
+ ↓
+Attack Path Generation (sorted by score desc)
+ ↓
+FilterAttackPaths (--min-attack-score, rendering layer)
+ ↓
+BuildAttackGraph (render/graph.go)
+ ↓
+Renderer: RenderMermaidGraph | RenderGraphvizGraph
+ ↓
+stdout
+```
+
+### Graph Model (`render/graph.go`)
+
+| Type | Fields | Description |
+|------|--------|-------------|
+| `Graph` | `Nodes []GraphNode`, `Edges []GraphEdge` | Top-level graph |
+| `GraphNode` | `ID`, `Label`, `Type` | Security entity (Internet, LoadBalancer, Deployment, StatefulSet, DaemonSet, Job, CronJob, ReplicaSet, Pod†, ServiceAccount, IAMRole, Cluster, CloudResource) |
+| `GraphEdge` | `From`, `To` | Directional attacker-movement link |
+
+† `Pod` appears only as a fallback node type when no workload metadata is available (Phase 10.4).
+
+### `BuildAttackGraph` (Phase 10.4 — Workload-Collapsed / Topology-Aware)
+
+```go
+BuildAttackGraph(summary models.AuditSummary, findings []models.Finding) Graph
+```
+
+Edges are built from **real Kubernetes relationships** and pods are **collapsed into their parent workload**:
+
+| Edge | Condition |
+|------|-----------|
+| `Internet → LoadBalancer` | Always — every LB finding in the path |
+| `LoadBalancer → Workload` | Only when `Metadata["service_selector"]` matches `Metadata["pod_labels"]`; edge targets the Workload node (not the individual pod) |
+| `Workload → ServiceAccount` | Only when `Metadata["pod_service_account"]` == SA finding's `ResourceID` in the same namespace |
+| `IAMRole / Cluster / CloudResource` | Node added as context; no structural edge (AWS/IAM topology not yet available) |
+
+**Workload collapsing (Phase 10.4)**: pod findings with `workload_kind`/`workload_name` metadata produce a single `{Kind}_{Name}` node. Multiple pods belonging to the same Deployment collapse into one `Deployment_*` node. Node IDs are sanitized with `sanitizeNodeID`. When workload metadata is absent (e.g., no ownerReferences resolved), a `Pod_{resourceID}` fallback node is used.
+
+**Workload owner resolution** (`resolveWorkloadOwner`, `collector.go`): all ReplicaSets are pre-fetched before pod iteration. For each pod:
+1. Immediate owner kind is `Deployment`/`StatefulSet`/`DaemonSet`/`Job`/`CronJob` → use directly.
+2. Immediate owner is `ReplicaSet` → follow to RS's own owner (typically a Deployment).
+3. RS has no known parent → use `ReplicaSet` as workload boundary.
+4. No ownerReference → `Pod` (uncontrolled).
+
+**Structural metadata** is stamped by `annotateStructuralTopology` (engine, `kubernetes.go`) after `annotateNamespaceType`:
+- `Metadata["pod_labels"]` (`map[string]string`) — for LB selector matching
+- `Metadata["pod_service_account"]` (`string`) — for SA edge
+- `Metadata["workload_kind"]` (`string`) — for node type (Deployment, StatefulSet, …)
+- `Metadata["workload_name"]` (`string`) — for node ID / label
+- `Metadata["service_selector"]` (`map[string]string`) — on `K8S_SERVICE` findings
+
+**Selector matching** (`selectorMatchesPodLabels`): all selector key-value pairs must be present in pod labels; empty/nil selector → false (no spurious edges for selector-less services).
+
+- **Node deduplication**: same workload across multiple pod findings → one `GraphNode`
+- **Edge deduplication**: parallel edges between the same pair → one `GraphEdge`
+- `sanitizeNodeID`: replaces non-alphanumeric/underscore chars with `_` for valid Mermaid and Graphviz syntax
+
+### Flags
+
+| Flag | Default | Constraint | Effect |
+|------|---------|-----------|--------|
+| `--attack-graph` | false | requires `--show-risk-chains` | Build graph and print; skip normal table output |
+| `--graph-format` | `mermaid` | `mermaid` or `graphviz` | Output format for `--attack-graph` |
+
+`--attack-graph` exits after printing the graph — no policy enforcement, no exit-code-1 logic (graph export is view-only).
+
+### Example Mermaid Output
+
+Workload-collapsed graph (Phase 10.4 — selector, SA name, and ownerReferences matched):
+
+```mermaid
+graph TD
+
+Internet["Internet"]
+LoadBalancer_portainer["portainer (infra)"]
+Deployment_portainer["portainer (infra)"]
+ServiceAccount_portainer_sa_clusteradmin["portainer-sa-clusteradmin (infra)"]
+
+Internet --> LoadBalancer_portainer
+LoadBalancer_portainer --> Deployment_portainer
+Deployment_portainer --> ServiceAccount_portainer_sa_clusteradmin
+```
+
+Edges exist only when:
+- `portainer` Service has `spec.selector: {app: portainer}` and pods have label `app=portainer`
+- pods are owned by `Deployment/portainer` (resolved via ownerReferences → ReplicaSet → Deployment)
+- pods declare `spec.serviceAccountName: portainer-sa-clusteradmin`
+- Multiple replicas of the same Deployment collapse into a single `Deployment_portainer` node
+
+### Example Graphviz Output
+
+```dot
+digraph AttackPath {
+
+Internet [label="Internet"]
+LoadBalancer_web_svc [label="web-svc"]
+Pod_app_pod [label="app-pod"]
+ServiceAccount_default [label="default"]
+
+Internet -> LoadBalancer_web_svc
+LoadBalancer_web_svc -> Pod_app_pod
+Pod_app_pod -> ServiceAccount_default
+}
+```
 
 ## Engine Layering Philosophy
 

@@ -112,14 +112,46 @@ func collectNamespaces(ctx context.Context, clientset k8sclient.Interface) ([]Na
 // and PSS-relevant security context fields (runAsNonRoot, runAsUser, capabilities,
 // seccompProfile). Container-level security context overrides pod-level for all
 // effective PSS fields.
+//
+// Phase 10.4: resolves the top-level workload owner via ownerReferences.
+// Pods owned by a ReplicaSet are followed one level up to detect Deployment
+// ownership. The resolved kind/name are stored in WorkloadKind/WorkloadName.
 func collectPods(ctx context.Context, clientset k8sclient.Interface) ([]PodInfo, error) {
 	podList, err := clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
 
+	// Pre-fetch all ReplicaSets to resolve Pod → ReplicaSet → Deployment chains.
+	// Key: "namespace/rsName" → the RS's controlling ownerReference (if any).
+	rsOwnerMap := make(map[string]metav1.OwnerReference)
+	rsList, err := clientset.AppsV1().ReplicaSets("").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("collect replicasets: %w", err)
+	}
+	for _, rs := range rsList.Items {
+		for _, ref := range rs.OwnerReferences {
+			if ref.Controller != nil && *ref.Controller {
+				rsOwnerMap[rs.Namespace+"/"+rs.Name] = ref
+				break
+			}
+		}
+	}
+
 	pods := make([]PodInfo, 0, len(podList.Items))
 	for _, p := range podList.Items {
+		podLabels := make(map[string]string, len(p.Labels))
+		for k, v := range p.Labels {
+			podLabels[k] = v
+		}
+
+		workloadKind, workloadName := resolveWorkloadOwner(p.Namespace, p.OwnerReferences, rsOwnerMap)
+		if workloadName == "" {
+			// No controller found — pod is its own workload.
+			workloadKind = "Pod"
+			workloadName = p.Name
+		}
+
 		pod := PodInfo{
 			Name:               p.Name,
 			Namespace:          p.Namespace,
@@ -127,6 +159,9 @@ func collectPods(ctx context.Context, clientset k8sclient.Interface) ([]PodInfo,
 			HostPID:            p.Spec.HostPID,
 			HostIPC:            p.Spec.HostIPC,
 			ServiceAccountName: p.Spec.ServiceAccountName,
+			Labels:             podLabels,
+			WorkloadKind:       workloadKind,
+			WorkloadName:       workloadName,
 		}
 		for _, c := range p.Spec.Containers {
 			privileged := c.SecurityContext != nil &&
@@ -194,6 +229,37 @@ func collectPods(ctx context.Context, clientset k8sclient.Interface) ([]PodInfo,
 	return pods, nil
 }
 
+// resolveWorkloadOwner walks a pod's ownerReferences to find the top-level
+// controller kind and name. When the immediate owner is a ReplicaSet, it looks
+// up that RS in rsOwnerMap to detect Deployment (or other) ownership one level
+// up. Returns ("", "") when no controlling owner is found (caller substitutes
+// "Pod" + pod.Name as the fallback).
+//
+// Supported controller kinds: Deployment, StatefulSet, DaemonSet, Job, CronJob.
+// ReplicaSet is returned as a fallback when it has no known parent controller.
+func resolveWorkloadOwner(namespace string, refs []metav1.OwnerReference, rsOwnerMap map[string]metav1.OwnerReference) (kind, name string) {
+	for _, ref := range refs {
+		if ref.Controller == nil || !*ref.Controller {
+			continue
+		}
+		switch ref.Kind {
+		case "Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob":
+			return ref.Kind, ref.Name
+		case "ReplicaSet":
+			// Follow up to the RS's owner to detect Deployment ownership.
+			if ownerRef, ok := rsOwnerMap[namespace+"/"+ref.Name]; ok {
+				switch ownerRef.Kind {
+				case "Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob":
+					return ownerRef.Kind, ownerRef.Name
+				}
+			}
+			// RS has no known parent — use it as the workload boundary.
+			return "ReplicaSet", ref.Name
+		}
+	}
+	return "", ""
+}
+
 // collectServices lists all Services across all namespaces and converts them to ServiceInfo.
 // Annotations are copied to avoid sharing the original map.
 func collectServices(ctx context.Context, clientset k8sclient.Interface) ([]ServiceInfo, error) {
@@ -208,11 +274,16 @@ func collectServices(ctx context.Context, clientset k8sclient.Interface) ([]Serv
 		for k, v := range s.Annotations {
 			annotations[k] = v
 		}
+		selector := make(map[string]string, len(s.Spec.Selector))
+		for k, v := range s.Spec.Selector {
+			selector[k] = v
+		}
 		services = append(services, ServiceInfo{
 			Name:        s.Name,
 			Namespace:   s.Namespace,
 			Type:        string(s.Spec.Type),
 			Annotations: annotations,
+			Selector:    selector,
 		})
 	}
 	return services, nil

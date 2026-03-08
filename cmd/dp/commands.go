@@ -874,6 +874,27 @@ func validateMinAttackScoreFlags(minAttackScore int, showRiskChains bool) error 
 	return nil
 }
 
+// validateAttackGraphFlags returns an error when --attack-graph is set without
+// --show-risk-chains. The graph is built from computed attack paths, which are
+// only populated when ShowRiskChains is enabled.
+func validateAttackGraphFlags(attackGraph bool, showRiskChains bool) error {
+	if attackGraph && !showRiskChains {
+		return fmt.Errorf("--attack-graph requires --show-risk-chains")
+	}
+	return nil
+}
+
+// validateGraphFormat returns an error when graphFormat is not one of the
+// recognised values: "mermaid" or "graphviz".
+func validateGraphFormat(graphFormat string) error {
+	switch graphFormat {
+	case "mermaid", "graphviz":
+		return nil
+	default:
+		return fmt.Errorf("--graph-format must be 'mermaid' or 'graphviz'; got %q", graphFormat)
+	}
+}
+
 // explainBelowThreshold reports whether the requested --explain-path score
 // falls below the active --min-attack-score threshold. When true the explain
 // request is rejected with an informative message — the score is filtered out
@@ -893,9 +914,11 @@ func newKubernetesAuditCmd() *cobra.Command {
 		color          bool
 		excludeSystem  bool
 		minRiskScore   int
-		showRiskChains  bool
-		explainScore    int
-		minAttackScore  int
+		showRiskChains bool
+		explainScore   int
+		minAttackScore int
+		attackGraph    bool
+		graphFormat    string
 	)
 
 	cmd := &cobra.Command{
@@ -913,6 +936,14 @@ func newKubernetesAuditCmd() *cobra.Command {
 			}
 			if err := validateMinAttackScoreFlags(minAttackScore, showRiskChains); err != nil {
 				return err
+			}
+			if err := validateAttackGraphFlags(attackGraph, showRiskChains); err != nil {
+				return err
+			}
+			if attackGraph {
+				if err := validateGraphFormat(graphFormat); err != nil {
+					return err
+				}
 			}
 
 			provider := kube.NewDefaultKubeClientProvider()
@@ -963,6 +994,21 @@ func newKubernetesAuditCmd() *cobra.Command {
 			renderSummary.AttackPaths = filteredPaths
 			renderReport := *report
 			renderReport.Summary = renderSummary
+
+			// attack-graph mode: build graph from computed paths and render it.
+			// Skips all normal table/JSON output. Policy enforcement and
+			// exit-code-1 logic are also skipped (graph export is view-only).
+			if attackGraph {
+				graph := dprender.BuildAttackGraph(report.Summary, report.Findings)
+				var graphOut string
+				if graphFormat == "graphviz" {
+					graphOut = dprender.RenderGraphvizGraph(graph)
+				} else {
+					graphOut = dprender.RenderMermaidGraph(graph)
+				}
+				fmt.Fprint(os.Stdout, graphOut)
+				return nil
+			}
 
 			// explain-path mode: render a single attack path and exit early.
 			// No normal table, no policy enforcement, no exit-code-1 logic.
@@ -1017,6 +1063,8 @@ func newKubernetesAuditCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&showRiskChains, "show-risk-chains", false, "Group findings by risk chain in table output; add risk_chains to JSON output")
 	cmd.Flags().IntVar(&explainScore, "explain-path", 0, "Print structured breakdown of the attack path with this score (requires --show-risk-chains)")
 	cmd.Flags().IntVar(&minAttackScore, "min-attack-score", 0, "Only render attack paths with score >= this value (requires --show-risk-chains)")
+	cmd.Flags().BoolVar(&attackGraph, "attack-graph", false, "Render attack paths as a graph (requires --show-risk-chains)")
+	cmd.Flags().StringVar(&graphFormat, "graph-format", "mermaid", "Graph output format: mermaid or graphviz (used with --attack-graph)")
 
 	return cmd
 }
