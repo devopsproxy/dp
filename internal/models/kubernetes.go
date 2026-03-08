@@ -109,6 +109,19 @@ type KubernetesPodData struct {
 	// "default" service account for the pod's namespace.
 	ServiceAccountName string `json:"service_account_name,omitempty"`
 
+	// Labels is a copy of the pod's label map (metadata.labels).
+	// Used by the graph builder to match Service selectors to pods.
+	Labels map[string]string `json:"labels,omitempty"`
+
+	// WorkloadKind is the top-level controller kind resolved from ownerReferences.
+	// Possible values: Deployment, StatefulSet, DaemonSet, Job, CronJob,
+	// ReplicaSet (when RS has no known parent), or Pod (uncontrolled pod).
+	WorkloadKind string `json:"workload_kind,omitempty"`
+
+	// WorkloadName is the name of the top-level controller that owns this pod.
+	// For uncontrolled pods this equals the pod name.
+	WorkloadName string `json:"workload_name,omitempty"`
+
 	// Containers holds per-container security and resource data.
 	Containers []KubernetesContainerData `json:"containers,omitempty"`
 }
@@ -126,6 +139,11 @@ type KubernetesServiceData struct {
 
 	// Annotations is a copy of the Service's annotation map.
 	Annotations map[string]string `json:"annotations,omitempty"`
+
+	// Selector is a copy of the Service's spec.selector label map.
+	// Used by the graph builder to resolve which pods this Service routes to.
+	// An empty map means the Service has no pod selector (e.g. ExternalName).
+	Selector map[string]string `json:"selector,omitempty"`
 }
 
 // KubernetesEKSData holds EKS-specific cluster configuration collected from

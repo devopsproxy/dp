@@ -123,6 +123,19 @@ type PodInfo struct {
 	// (spec.serviceAccountName).
 	ServiceAccountName string
 
+	// Labels is a copy of the pod's label map (metadata.labels).
+	// Used by the graph builder to match Service selectors to pods.
+	Labels map[string]string
+
+	// WorkloadKind is the top-level controller kind resolved from ownerReferences.
+	// Possible values: Deployment, StatefulSet, DaemonSet, Job, CronJob,
+	// ReplicaSet (when RS has no known parent), or Pod (uncontrolled pod).
+	WorkloadKind string
+
+	// WorkloadName is the name of the top-level controller that owns this pod.
+	// For uncontrolled pods this equals the pod name.
+	WorkloadName string
+
 	// Containers holds per-container security and resource data.
 	Containers []ContainerInfo
 }
@@ -140,6 +153,11 @@ type ServiceInfo struct {
 
 	// Annotations is a copy of the Service's annotation map.
 	Annotations map[string]string
+
+	// Selector is a copy of the Service's spec.selector label map.
+	// Used by the graph builder to resolve which pods this Service routes to.
+	// An empty map means the Service has no pod selector (e.g. ExternalName).
+	Selector map[string]string
 }
 
 // ClusterData is the inventory collected from a single Kubernetes cluster.

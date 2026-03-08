@@ -1263,3 +1263,80 @@ func TestMinAttackScore_JSONRenderFiltered(t *testing.T) {
 		t.Errorf("JSON risk_score = %d; want 98", got.Summary.RiskScore)
 	}
 }
+
+// ── Phase 10: --attack-graph flag and validation ──────────────────────────────
+
+// TestCLI_AttackGraphRequiresRiskChains verifies that validateAttackGraphFlags
+// returns an error when --attack-graph is true but --show-risk-chains is false,
+// and returns nil for all other combinations.
+func TestCLI_AttackGraphRequiresRiskChains(t *testing.T) {
+	// attackGraph=true, showRiskChains=false → must error.
+	if err := validateAttackGraphFlags(true, false); err == nil {
+		t.Error("validateAttackGraphFlags(true, false) = nil; want non-nil error")
+	} else if !strings.Contains(err.Error(), "--attack-graph requires --show-risk-chains") {
+		t.Errorf("unexpected error message: %q", err.Error())
+	}
+
+	// attackGraph=true, showRiskChains=true → no error.
+	if err := validateAttackGraphFlags(true, true); err != nil {
+		t.Errorf("validateAttackGraphFlags(true, true) = %v; want nil", err)
+	}
+
+	// attackGraph=false → no error regardless of showRiskChains.
+	if err := validateAttackGraphFlags(false, false); err != nil {
+		t.Errorf("validateAttackGraphFlags(false, false) = %v; want nil", err)
+	}
+	if err := validateAttackGraphFlags(false, true); err != nil {
+		t.Errorf("validateAttackGraphFlags(false, true) = %v; want nil", err)
+	}
+}
+
+// TestCLI_GraphFormatValidation verifies that validateGraphFormat accepts
+// "mermaid" and "graphviz" and rejects everything else.
+func TestCLI_GraphFormatValidation(t *testing.T) {
+	validFormats := []string{"mermaid", "graphviz"}
+	for _, f := range validFormats {
+		if err := validateGraphFormat(f); err != nil {
+			t.Errorf("validateGraphFormat(%q) = %v; want nil", f, err)
+		}
+	}
+
+	invalidFormats := []string{"", "dot", "json", "svg", "Mermaid", "GRAPHVIZ"}
+	for _, f := range invalidFormats {
+		if err := validateGraphFormat(f); err == nil {
+			t.Errorf("validateGraphFormat(%q) = nil; want non-nil error", f)
+		}
+	}
+}
+
+// TestKubernetesAuditCmd_AttackGraphFlag_Registered verifies that --attack-graph
+// is declared as a bool flag with default value false.
+func TestKubernetesAuditCmd_AttackGraphFlag_Registered(t *testing.T) {
+	cmd := newKubernetesAuditCmd()
+	flag := cmd.Flags().Lookup("attack-graph")
+	if flag == nil {
+		t.Fatal("--attack-graph flag not registered on kubernetes audit command")
+	}
+	if flag.DefValue != "false" {
+		t.Errorf("--attack-graph default = %q; want false", flag.DefValue)
+	}
+	if flag.Value.Type() != "bool" {
+		t.Errorf("--attack-graph type = %q; want bool", flag.Value.Type())
+	}
+}
+
+// TestKubernetesAuditCmd_GraphFormatFlag_Registered verifies that --graph-format
+// is declared as a string flag with default value "mermaid".
+func TestKubernetesAuditCmd_GraphFormatFlag_Registered(t *testing.T) {
+	cmd := newKubernetesAuditCmd()
+	flag := cmd.Flags().Lookup("graph-format")
+	if flag == nil {
+		t.Fatal("--graph-format flag not registered on kubernetes audit command")
+	}
+	if flag.DefValue != "mermaid" {
+		t.Errorf("--graph-format default = %q; want mermaid", flag.DefValue)
+	}
+	if flag.Value.Type() != "string" {
+		t.Errorf("--graph-format type = %q; want string", flag.Value.Type())
+	}
+}

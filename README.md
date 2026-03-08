@@ -591,6 +591,60 @@ When `--explain-path` score is below the `--min-attack-score` threshold:
 Requested attack path score 92 is below --min-attack-score threshold
 ```
 
+#### Attack Path Graph Visualization (Phase 10)
+
+Use `--attack-graph` to render detected attack paths as a directed graph. Requires `--show-risk-chains`. Graph export is **rendering-only** — no engine changes, no scoring modifications, no policy enforcement.
+
+The graph builder uses **real Kubernetes structural relationships** and **workload-collapsed nodes** — no heuristics, no ordering-based guesses:
+- `Internet → LoadBalancer` always (every exposed Service is an entry point)
+- `LoadBalancer → Workload` only when the Service's `spec.selector` matches the pod's `metadata.labels`
+- `Workload → ServiceAccount` only when `pod.spec.serviceAccountName` matches the SA finding's resource ID in the same namespace
+
+**Pods are not graph nodes.** Instead, pods are collapsed into their parent workload (Deployment, StatefulSet, DaemonSet, Job, or CronJob), resolved via `pod.metadata.ownerReferences`. Multiple replicas of the same Deployment produce a single `Deployment_*` node — keeping large clusters readable regardless of replica count.
+
+Nodes with no confirmed structural partner still appear in the graph — a node without an edge means the relationship cannot be confirmed from the available data, not that no risk exists.
+
+```bash
+# Render Mermaid graph (default)
+./dp kubernetes audit --show-risk-chains --attack-graph
+
+# Render Graphviz DOT graph
+./dp kubernetes audit --show-risk-chains --attack-graph --graph-format graphviz
+
+# Combine with --exclude-system and --min-attack-score
+./dp kubernetes audit --show-risk-chains --exclude-system --min-attack-score 95 --attack-graph
+
+# Pipe Mermaid output to a file for rendering
+./dp kubernetes audit --show-risk-chains --attack-graph > attack-graph.mmd
+
+# Pipe Graphviz output to dot for SVG generation
+./dp kubernetes audit --show-risk-chains --attack-graph --graph-format graphviz | dot -Tsvg > attack-path.svg
+```
+
+Example Mermaid output (portainer LB selects pods via `app=portainer` label; pods owned by `Deployment/portainer`; pods declare `portainer-sa-clusteradmin`):
+
+```mermaid
+graph TD
+
+    Internet["Internet"]
+    LoadBalancer_portainer["portainer (infra)"]
+    Deployment_portainer["portainer (infra)"]
+    ServiceAccount_portainer_sa_clusteradmin["portainer-sa-clusteradmin (infra)"]
+
+    Internet --> LoadBalancer_portainer
+    LoadBalancer_portainer --> Deployment_portainer
+    Deployment_portainer --> ServiceAccount_portainer_sa_clusteradmin
+```
+
+Every edge reflects a real Kubernetes relationship. Workloads without matching LB selectors still appear as nodes (security risk present) but receive no edge (exposure path unconfirmed).
+
+When `--attack-graph` is set, the normal audit table output is **skipped** — only the graph is printed to stdout. Policy enforcement and exit-code-1 logic are not applied.
+
+| Flag | Default | Requires | Description |
+|------|---------|---------|-------------|
+| `--attack-graph` | false | `--show-risk-chains` | Render attack paths as a directed graph |
+| `--graph-format` | `mermaid` | `--attack-graph` | Output format: `mermaid` or `graphviz` |
+
 #### Filtering by Risk Score (Phase 4C)
 
 Use `--min-risk-score` to narrow the report to only findings that participate in a risk chain at or above the given threshold:
@@ -1039,6 +1093,12 @@ Unit tests across rule engine, policy layer, data-protection rules, security rul
 - [x] Phase 7B: PATH 5 (score 96) — Cross-Cloud Identity Escalation; per-namespace + cluster IAM; requires `K8S_SERVICE_PUBLIC_LOADBALANCER` + privilege + identity weakness + cluster (`EKS_NODE_ROLE_OVERPERMISSIVE` OR `EKS_IAM_ROLE_WILDCARD`); strict 8-rule filtering; 8 new tests
 - [x] Phase 8: `--explain-path <score>` flag; new `internal/render` package (`FindPathByScore`, `RenderAttackPathExplanation`, `WriteExplainJSON`); strict filtering from `path.FindingIDs`; early return in explain mode (exit 0, no table/policy/exit-code-1); requires `--show-risk-chains`
 - [x] Phase 9: `--min-attack-score <int>` flag; `FilterAttackPaths` in render package; post-correlation rendering filter only — no engine/scoring changes; renderReport copy pattern (original never mutated); explain-below-threshold guard; requires `--show-risk-chains`
+- [x] Phase 10: `--attack-graph` + `--graph-format` flags; `BuildAttackGraph` (strict linear chain — one representative node per layer, no combinatorial edges; node+edge deduplication; `ruleNodeType`+`layerNodeType` tables); `RenderMermaidGraph` + `RenderGraphvizGraph`; rendering-only, no engine/scoring changes; requires `--show-risk-chains`
+- [x] Phase 10.1: Fix edge explosion — `BuildAttackGraph` now picks ONE representative finding per layer (first-match), advancing `prevNodeID` as a single pointer rather than a slice; extra findings at the same layer become orphan nodes (not wired); 2 new regression tests (`TestGraphBuilder_NoCombinatorialEdges`, `TestGraphBuilder_LayerOrdering`)
+- [x] Phase 10.2: Layered fan-out graph — `BuildAttackGraph` now collects ALL findings per layer; `prevLayerNodeIDs []string` tracks prev layer; when prev has 1 node it fans out to all children; when prev has N nodes each child picks ONE parent via `selectParentNode` (metadata `service_account`/`service` keys then first-fallback); 3 updated/new tests (`TestGraphBuilder_NoCombinatorialEdges` updated, `TestGraphBuilder_LayerFanOut`, `TestGraphBuilder_NoLayerSkipping`)
+- [x] Phase 10.3: Structural topology-aware graph — edges from real K8s relationships (Service selector→pod labels, pod SA name→SA finding); `annotateStructuralTopology` engine function; `selectorMatchesPodLabels` predicate; no heuristic fallbacks; 4 new tests
+- [x] Phase 10.4: Workload-collapsed graph — pods replaced by parent workload nodes (Deployment/StatefulSet/DaemonSet/Job/CronJob); ownerReferences resolved in `collectPods` via pre-fetched ReplicaSet index; Pod→ReplicaSet→Deployment chain followed; multiple replicas of same workload → single node; `workloadNodeInfo` helper in graph builder; 2 new tests (`TestGraphBuilder_WorkloadCollapse`, `TestGraphBuilder_WorkloadServiceAccountEdge`)
+- [x] Phase 10.3: Structural graph — topology-aware edges replace all heuristics; collector captures `pod.Labels` + `service.Spec.Selector`; engine maps to `KubernetesPodData.Labels` + `KubernetesServiceData.Selector`; `annotateStructuralTopology` stamps `pod_labels`, `pod_service_account`, `service_selector` on findings; `BuildAttackGraph` rewritten: Internet→LB always, LB→Pod via selector match, Pod→SA via serviceAccountName match, no fallbacks; `selectorMatchesPodLabels` predicate; 3 new tests (`TestSelectorMatchesPodLabels`, `TestGraphBuilder_ServiceSelectorMatching`, `TestGraphBuilder_PodServiceAccountEdge`, `TestGraphBuilder_NoSpuriousEdgesWithoutMetadata`)
 - [ ] LLM summarization: findings → human-readable report
 - [ ] Terraform plan analysis module
 - [ ] Azure provider module
