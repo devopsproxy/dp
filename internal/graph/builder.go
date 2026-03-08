@@ -168,6 +168,64 @@ func BuildAssetGraph(cluster *models.KubernetesClusterData) (*Graph, error) {
 	return g, nil
 }
 
+// ── Cloud reachability enrichment ─────────────────────────────────────────────
+
+// EnrichWithCloudAccess extends an existing Graph by adding cloud resource nodes
+// (S3Bucket, SecretsManagerSecret, DynamoDBTable, KMSKey) and CAN_ACCESS edges
+// from IAMRole nodes to those resources.
+//
+// roleAccess maps IAM role ARNs (e.g. "arn:aws:iam::123:role/app-role") to the
+// set of AWS resources that role can access, as resolved by
+// internal/providers/aws/iam.ResolveRoleResourceAccess.
+//
+// If the IAMRole node for a given ARN does not exist in g, that entry is silently
+// skipped — enrichment never creates dangling edges.
+// Duplicate cloud resource nodes and edges are deduplicated by the graph itself.
+func EnrichWithCloudAccess(g *Graph, roleAccess map[string][]models.RoleCloudAccess) {
+	for roleArn, accesses := range roleAccess {
+		roleID := sanitizeID("IAMRole_" + extractRoleName(roleArn))
+		if g.GetNode(roleID) == nil {
+			continue
+		}
+
+		for _, access := range accesses {
+			if access.ResourceName == "" {
+				continue
+			}
+			nodeID := sanitizeID(string(access.ResourceType) + "_" + access.ResourceName)
+			nt := cloudResourceNodeType(access.ResourceType)
+
+			// Add cloud resource node (first-write-wins if already present).
+			g.AddNode(&Node{
+				ID:   nodeID,
+				Type: nt,
+				Name: access.ResourceName,
+				Metadata: map[string]string{
+					"arn": access.ARN,
+				},
+			})
+
+			g.AddEdge(roleID, nodeID, EdgeTypeCanAccess)
+		}
+	}
+}
+
+// cloudResourceNodeType maps a models.CloudResourceType to its graph NodeType.
+func cloudResourceNodeType(rt models.CloudResourceType) NodeType {
+	switch rt {
+	case models.CloudResourceTypeS3Bucket:
+		return NodeTypeS3Bucket
+	case models.CloudResourceTypeSecretsManagerSecret:
+		return NodeTypeSecretsManagerSecret
+	case models.CloudResourceTypeDynamoDBTable:
+		return NodeTypeDynamoDBTable
+	case models.CloudResourceTypeKMSKey:
+		return NodeTypeKMSKey
+	default:
+		return NodeType(rt) // passthrough for forward compatibility
+	}
+}
+
 // selectorMatches reports whether all key-value pairs in selector are present
 // in podLabels. An empty selector returns false.
 func selectorMatches(selector, podLabels map[string]string) bool {

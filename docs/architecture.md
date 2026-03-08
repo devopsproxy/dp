@@ -129,6 +129,10 @@ The `internal/graph` package is an in-memory directed graph that models real inf
 | `IAMRole` | AWS IAM role reachable via IRSA |
 | `Namespace` | Kubernetes namespace (containment boundary) |
 | `Cluster` | EKS cluster (control-plane resources) |
+| `S3Bucket` | AWS S3 bucket accessible by an IAM role |
+| `SecretsManagerSecret` | AWS Secrets Manager secret accessible by an IAM role |
+| `DynamoDBTable` | AWS DynamoDB table accessible by an IAM role |
+| `KMSKey` | AWS KMS key accessible by an IAM role |
 
 ### Edge types
 
@@ -139,6 +143,7 @@ The `internal/graph` package is an in-memory directed graph that models real inf
 | `RUNS_AS` | Workload → ServiceAccount (pod.spec.serviceAccountName) |
 | `ASSUMES_ROLE` | ServiceAccount → IAMRole (IRSA annotation) |
 | `CONTAINS` | Namespace → Workload or Namespace → ServiceAccount |
+| `CAN_ACCESS` | IAMRole → cloud resource (S3, Secrets Manager, DynamoDB, KMS) |
 
 ### Node ID format
 
@@ -153,6 +158,43 @@ IAMRole/app-role    → sanitize("IAMRole_app-role")
 ```
 
 `sanitize` replaces any character that is not alphanumeric or `_` with `_`.
+
+---
+
+---
+
+## Cloud Reachability (Phase 12)
+
+The asset graph can be extended beyond Kubernetes topology into AWS cloud resources, enabling true end-to-end attack paths of the form:
+
+```
+Internet → LoadBalancer → Workload → ServiceAccount → IAMRole → S3Bucket / SecretsManagerSecret / …
+```
+
+### How it works
+
+1. **IAM resolution** — `internal/providers/aws/iam.ResolveRoleResourceAccess` reads the attached managed policies and inline role policies for a given IAM role ARN using the AWS IAM API. It parses each `Allow` statement's `Action` and `Resource` fields, maps the service (s3, secretsmanager, dynamodb, kms) to a cloud resource type, extracts the resource name from the ARN, and returns a deduplicated `[]models.RoleCloudAccess`.
+
+2. **Graph enrichment** — `graph.EnrichWithCloudAccess(g, roleAccess)` takes the resolved access map and, for each role ARN that has an `IAMRole` node in the graph, creates a resource node (`S3Bucket`, `SecretsManagerSecret`, etc.) and a `CAN_ACCESS` edge from the IAM role node to the resource node.
+
+3. **Engine injection** — `KubernetesEngine.WithIAMResolver(resolver IAMAccessResolver)` injects the resolver. When set, `RunAudit` iterates every `IAMRole` node in the asset graph after graph construction, calls `ResolveRoleResourceAccess`, and enriches the graph. The resolver is optional; nil disables the feature.
+
+### Wildcard handling
+
+Policy resources containing `*` are skipped — it is not possible to enumerate actual resources from a wildcard grant without additional AWS API calls (e.g., `ListBuckets`). Only explicit ARNs are modelled as graph nodes.
+
+### Non-fatal design
+
+IAM resolution failures per role are silently ignored, consistent with the non-fatal pattern used for EKS data collection and asset graph construction. A single failing role never aborts the audit.
+
+### Package structure
+
+| Package | Responsibility |
+|---------|---------------|
+| `internal/providers/aws/iam` | `IAMAccessClient` interface, `DefaultIAMAccessClient`, `ResolveRoleResourceAccess` |
+| `internal/models` | `CloudResourceType`, `RoleCloudAccess` (shared type between engine and provider) |
+| `internal/graph` | `NodeTypeS3Bucket`, `NodeTypeSecretsManagerSecret`, `NodeTypeDynamoDBTable`, `NodeTypeKMSKey`, `EdgeTypeCanAccess`, `EnrichWithCloudAccess` |
+| `internal/engine` | `IAMAccessResolver` interface, `iamResolver` field on `KubernetesEngine`, `WithIAMResolver` setter |
 
 ---
 

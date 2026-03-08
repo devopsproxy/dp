@@ -38,6 +38,22 @@ const (
 
 	// NodeTypeNamespace is a Kubernetes namespace (containment boundary).
 	NodeTypeNamespace NodeType = "Namespace"
+
+	// NodeTypeS3Bucket is an Amazon S3 bucket reachable via an IAM role
+	// (Phase 12 cloud reachability).
+	NodeTypeS3Bucket NodeType = "S3Bucket"
+
+	// NodeTypeSecretsManagerSecret is an AWS Secrets Manager secret reachable
+	// via an IAM role (Phase 12 cloud reachability).
+	NodeTypeSecretsManagerSecret NodeType = "SecretsManagerSecret"
+
+	// NodeTypeDynamoDBTable is an Amazon DynamoDB table reachable via an IAM
+	// role (Phase 12 cloud reachability).
+	NodeTypeDynamoDBTable NodeType = "DynamoDBTable"
+
+	// NodeTypeKMSKey is an AWS KMS key reachable via an IAM role
+	// (Phase 12 cloud reachability).
+	NodeTypeKMSKey NodeType = "KMSKey"
 )
 
 // EdgeType describes the relationship direction between two Nodes.
@@ -68,6 +84,11 @@ const (
 	// EdgeTypePartOf: Workload → Namespace — the workload belongs to the
 	// namespace (inverse of CONTAINS; reserved for future use).
 	EdgeTypePartOf EdgeType = "PART_OF"
+
+	// EdgeTypeCanAccess: IAMRole → Cloud Resource — the IAM role's attached
+	// policies grant access to the target AWS resource (S3, Secrets Manager,
+	// DynamoDB, KMS). Added by graph.EnrichWithCloudAccess (Phase 12).
+	EdgeTypeCanAccess EdgeType = "CAN_ACCESS"
 )
 
 // Node represents a security-relevant infrastructure entity in the asset graph.

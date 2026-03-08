@@ -6,6 +6,120 @@ import (
 	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
 )
 
+// ── TestGraphBuilder_IAMRoleS3Access ──────────────────────────────────────────
+
+// TestGraphBuilder_IAMRoleS3Access verifies that EnrichWithCloudAccess creates
+// an S3Bucket node and a CAN_ACCESS edge from the IAMRole node when the role
+// has S3 bucket access in the provided access map.
+func TestGraphBuilder_IAMRoleS3Access(t *testing.T) {
+	const roleArn = "arn:aws:iam::123456789012:role/app-role"
+
+	// Build a minimal graph that already has an IAMRole node (as BuildAssetGraph
+	// would produce after the IRSA bridge).
+	g := NewGraph()
+	roleID := sanitizeID("IAMRole_app-role")
+	g.AddNode(&Node{
+		ID:       roleID,
+		Type:     NodeTypeIAMRole,
+		Name:     "app-role",
+		Metadata: map[string]string{"arn": roleArn},
+	})
+
+	// Enrich with S3 bucket access.
+	roleAccess := map[string][]models.RoleCloudAccess{
+		roleArn: {
+			{
+				ResourceType: models.CloudResourceTypeS3Bucket,
+				ResourceName: "my-data-bucket",
+				ARN:          "arn:aws:s3:::my-data-bucket",
+			},
+		},
+	}
+	EnrichWithCloudAccess(g, roleAccess)
+
+	bucketID := sanitizeID("S3Bucket_my-data-bucket")
+
+	// S3Bucket node must exist with correct type and metadata.
+	bucketNode := g.GetNode(bucketID)
+	if bucketNode == nil {
+		t.Fatalf("expected S3Bucket node %q to exist after enrichment", bucketID)
+	}
+	if bucketNode.Type != NodeTypeS3Bucket {
+		t.Errorf("expected NodeTypeS3Bucket; got %q", bucketNode.Type)
+	}
+	if bucketNode.Name != "my-data-bucket" {
+		t.Errorf("expected bucket name %q; got %q", "my-data-bucket", bucketNode.Name)
+	}
+	if bucketNode.Metadata["arn"] != "arn:aws:s3:::my-data-bucket" {
+		t.Errorf("expected arn metadata %q; got %q", "arn:aws:s3:::my-data-bucket", bucketNode.Metadata["arn"])
+	}
+
+	// IAMRole → S3Bucket CAN_ACCESS edge must exist.
+	if !g.HasEdge(roleID, bucketID) {
+		t.Errorf("expected CAN_ACCESS edge %s → %s", roleID, bucketID)
+	}
+}
+
+// ── TestGraphBuilder_IAMRoleSecretsManagerAccess ───────────────────────────────
+
+// TestGraphBuilder_IAMRoleSecretsManagerAccess verifies that EnrichWithCloudAccess
+// creates a SecretsManagerSecret node and a CAN_ACCESS edge for SM secret access,
+// and skips a role ARN whose IAMRole node does not exist in the graph.
+func TestGraphBuilder_IAMRoleSecretsManagerAccess(t *testing.T) {
+	const roleArn = "arn:aws:iam::123456789012:role/api-role"
+	const absentRoleArn = "arn:aws:iam::123456789012:role/absent-role"
+
+	g := NewGraph()
+	roleID := sanitizeID("IAMRole_api-role")
+	g.AddNode(&Node{
+		ID:       roleID,
+		Type:     NodeTypeIAMRole,
+		Name:     "api-role",
+		Metadata: map[string]string{"arn": roleArn},
+	})
+
+	roleAccess := map[string][]models.RoleCloudAccess{
+		roleArn: {
+			{
+				ResourceType: models.CloudResourceTypeSecretsManagerSecret,
+				ResourceName: "prod/db-password",
+				ARN:          "arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/db-password",
+			},
+		},
+		// absent-role has no node in the graph — its entry must be silently skipped.
+		absentRoleArn: {
+			{
+				ResourceType: models.CloudResourceTypeS3Bucket,
+				ResourceName: "orphan-bucket",
+				ARN:          "arn:aws:s3:::orphan-bucket",
+			},
+		},
+	}
+	EnrichWithCloudAccess(g, roleAccess)
+
+	secretID := sanitizeID("SecretsManagerSecret_prod/db-password")
+
+	// SecretsManagerSecret node must exist.
+	secretNode := g.GetNode(secretID)
+	if secretNode == nil {
+		t.Fatalf("expected SecretsManagerSecret node %q to exist", secretID)
+	}
+	if secretNode.Type != NodeTypeSecretsManagerSecret {
+		t.Errorf("expected NodeTypeSecretsManagerSecret; got %q", secretNode.Type)
+	}
+
+	// IAMRole → SecretsManagerSecret CAN_ACCESS edge must exist.
+	if !g.HasEdge(roleID, secretID) {
+		t.Errorf("expected CAN_ACCESS edge %s → %s", roleID, secretID)
+	}
+
+	// Absent role's bucket must not have been added (no IAMRole node exists for it).
+	orphanID := sanitizeID("S3Bucket_orphan-bucket")
+	if g.GetNode(orphanID) != nil {
+		t.Errorf("orphan bucket node should not exist when IAMRole node is absent")
+	}
+}
+
 // ── TestGraph_AddNodeDeduplication ────────────────────────────────────────────
 
 // TestGraph_AddNodeDeduplication verifies that adding a node with the same ID
