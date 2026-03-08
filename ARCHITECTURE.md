@@ -147,6 +147,7 @@ The correlation engine lives in `internal/engine/kubernetes_correlation.go` and 
 | 7A | PATH 4 — EKS Control Plane Exposure | kubernetes_correlation.go |
 | 7B | PATH 5 — Cross-Cloud Identity Escalation | kubernetes_correlation.go |
 | 8 | `--explain-path <score>` — attack path explanation renderer | render/explain.go |
+| 9 | `--min-attack-score <int>` — post-correlation attack path filter | render/min_attack_score.go |
 
 ### Namespace Classification
 
@@ -266,6 +267,50 @@ Computed pre-policy, pre-filter so `Summary.RiskScore` always reflects true clus
 - `validateExplainFlags(explainScore, showRiskChains)` — returns error when `explainScore > 0 && !showRiskChains`
 - Dispatch executes **after** file write; **before** normal `renderKubernetesAuditOutput`
 - Early return after explain output: exit 0, no policy enforcement, no exit-code-1
+
+## Attack Path Post-Processing Filters (Phase 9)
+
+Post-correlation filters that operate on the fully-computed `AuditReport` **before** rendering. They never touch the correlation engine, scoring hierarchy, `Summary.RiskScore`, or `Findings`.
+
+### Execution Order
+
+```
+Findings → Correlation → AttackPaths (sorted) → FilterAttackPaths → renderReport → Render
+                                  ↑
+                            (original unmodified)
+```
+
+### `FilterAttackPaths` (`render/min_attack_score.go`)
+
+```go
+FilterAttackPaths(paths []models.AttackPath, minScore int) []models.AttackPath
+```
+
+- Returns a **new slice** of paths with `Score >= minScore`; input is never mutated
+- When `minScore <= 0` returns the original slice without allocation
+- Produces the `filteredPaths` used to build `renderReport`
+
+### `renderReport` Pattern
+
+In `RunE`, a shallow copy of `report` is created with filtered attack paths:
+
+```go
+renderSummary := report.Summary
+renderSummary.AttackPaths = filteredPaths   // filtered copy
+renderReport := *report
+renderReport.Summary = renderSummary        // original report unchanged
+```
+
+`risk_score`, `total_findings`, `findings`, and all other summary fields are preserved in `renderReport`. The original `report` (written to `--file` and used for `--explain-path`) is never modified.
+
+### Flags
+
+| Flag | Default | Constraint | Effect |
+|------|---------|-----------|--------|
+| `--min-attack-score` | 0 | requires `--show-risk-chains` | filter `renderReport.Summary.AttackPaths` |
+| `--explain-path` | 0 | requires `--show-risk-chains` | early-return explain mode |
+
+When `--explain-path` and `--min-attack-score` are both set: `explainBelowThreshold(explainScore, minAttackScore)` guards the explain dispatch — if the requested score falls below the threshold, a "below threshold" message is printed and the command exits 0.
 
 ## Engine Layering Philosophy
 

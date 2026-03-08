@@ -1122,3 +1122,144 @@ func TestKubernetesAuditCmd_ExplainPathFlag_Registered(t *testing.T) {
 		t.Errorf("--explain-path type = %q; want int", flag.Value.Type())
 	}
 }
+
+// ── Phase 9: --min-attack-score flag and validation ───────────────────────────
+
+// TestCLI_MinAttackScoreRequiresShowRiskChains verifies validateMinAttackScoreFlags:
+// min > 0 without --show-risk-chains must error; all other combos return nil.
+func TestCLI_MinAttackScoreRequiresShowRiskChains(t *testing.T) {
+	// min set, showRiskChains false → must error.
+	if err := validateMinAttackScoreFlags(95, false); err == nil {
+		t.Error("validateMinAttackScoreFlags(95, false) = nil; want non-nil error")
+	} else if !strings.Contains(err.Error(), "--min-attack-score requires --show-risk-chains") {
+		t.Errorf("unexpected error message: %q", err.Error())
+	}
+
+	// min set, showRiskChains true → no error.
+	if err := validateMinAttackScoreFlags(95, true); err != nil {
+		t.Errorf("validateMinAttackScoreFlags(95, true) = %v; want nil", err)
+	}
+
+	// min zero (not set) → no error regardless of showRiskChains.
+	if err := validateMinAttackScoreFlags(0, false); err != nil {
+		t.Errorf("validateMinAttackScoreFlags(0, false) = %v; want nil", err)
+	}
+	if err := validateMinAttackScoreFlags(0, true); err != nil {
+		t.Errorf("validateMinAttackScoreFlags(0, true) = %v; want nil", err)
+	}
+}
+
+// TestMinAttackScore_ExplainBelowThreshold verifies explainBelowThreshold:
+// returns true only when explain score is set and strictly below the min threshold.
+func TestMinAttackScore_ExplainBelowThreshold(t *testing.T) {
+	// explain < min → below threshold.
+	if !explainBelowThreshold(92, 95) {
+		t.Error("explainBelowThreshold(92, 95) = false; want true")
+	}
+
+	// explain == min → at threshold (allowed).
+	if explainBelowThreshold(95, 95) {
+		t.Error("explainBelowThreshold(95, 95) = true; want false (equal is allowed)")
+	}
+
+	// explain > min → above threshold (allowed).
+	if explainBelowThreshold(96, 95) {
+		t.Error("explainBelowThreshold(96, 95) = true; want false")
+	}
+
+	// min == 0 (filter disabled) → never below threshold.
+	if explainBelowThreshold(92, 0) {
+		t.Error("explainBelowThreshold(92, 0) = true; want false (filter disabled)")
+	}
+
+	// explain == 0 (not set) → never triggers.
+	if explainBelowThreshold(0, 95) {
+		t.Error("explainBelowThreshold(0, 95) = true; want false (explain not set)")
+	}
+}
+
+// TestKubernetesAuditCmd_MinAttackScoreFlag_Registered verifies that the
+// --min-attack-score flag is declared with default value 0 and type int.
+func TestKubernetesAuditCmd_MinAttackScoreFlag_Registered(t *testing.T) {
+	cmd := newKubernetesAuditCmd()
+	flag := cmd.Flags().Lookup("min-attack-score")
+	if flag == nil {
+		t.Fatal("--min-attack-score flag not registered on kubernetes audit command")
+	}
+	if flag.DefValue != "0" {
+		t.Errorf("--min-attack-score default = %q; want 0", flag.DefValue)
+	}
+	if flag.Value.Type() != "int" {
+		t.Errorf("--min-attack-score type = %q; want int", flag.Value.Type())
+	}
+}
+
+// TestMinAttackScore_RenderFiltered verifies that renderKubernetesAuditOutput
+// only renders attack paths present in the report (i.e. pre-filtered paths).
+// When only score-98 path is passed, score-92 must not appear in table output.
+func TestMinAttackScore_RenderFiltered(t *testing.T) {
+	report := makeReport([]models.Finding{
+		{ID: "f1", ResourceID: "svc", Severity: models.SeverityHigh},
+		{ID: "f2", ResourceID: "pod", Severity: models.SeverityCritical},
+	})
+	report.Profile = "test-cluster"
+	// Simulate a pre-filtered report: only score-98 path passed to renderer.
+	report.Summary.AttackPaths = []models.AttackPath{
+		{
+			Score:       98,
+			Description: "Filtered path at 98",
+			Layers:      []string{"L1", "L2"},
+			FindingIDs:  []string{"f1"},
+		},
+	}
+
+	var buf bytes.Buffer
+	if err := renderKubernetesAuditOutput(&buf, report, "table", false, false, true); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := buf.String()
+
+	if !strings.Contains(out, "ATTACK PATH (Score: 98)") {
+		t.Errorf("output missing score-98 path; got:\n%s", out)
+	}
+	// score-92 was filtered out before render — must not appear.
+	if strings.Contains(out, "Score: 92") {
+		t.Errorf("output must not contain filtered score-92 path; got:\n%s", out)
+	}
+}
+
+// TestMinAttackScore_JSONRenderFiltered verifies that when a pre-filtered report
+// (only score-98 path) is passed in JSON mode, the JSON attack_paths contains
+// only the remaining path and risk_score is unaffected.
+func TestMinAttackScore_JSONRenderFiltered(t *testing.T) {
+	report := makeReport(nil)
+	report.Profile = "test-cluster"
+	report.Summary.RiskScore = 98 // set by engine before filtering
+	report.Summary.AttackPaths = []models.AttackPath{
+		{Score: 98, Description: "desc-98", Layers: []string{"L1"}, FindingIDs: []string{}},
+		// score-92 path intentionally excluded to simulate filtering
+	}
+
+	var buf bytes.Buffer
+	if err := renderKubernetesAuditOutput(&buf, report, "json", false, false, true); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var got models.AuditReport
+	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+		t.Fatalf("invalid JSON: %v\ngot:\n%s", err, buf.String())
+	}
+
+	// Only the pre-filtered path must be present.
+	if len(got.Summary.AttackPaths) != 1 {
+		t.Errorf("JSON attack_paths count = %d; want 1", len(got.Summary.AttackPaths))
+	}
+	if len(got.Summary.AttackPaths) > 0 && got.Summary.AttackPaths[0].Score != 98 {
+		t.Errorf("JSON attack_paths[0].Score = %d; want 98", got.Summary.AttackPaths[0].Score)
+	}
+
+	// risk_score must remain 98 (set before filtering by engine).
+	if got.Summary.RiskScore != 98 {
+		t.Errorf("JSON risk_score = %d; want 98", got.Summary.RiskScore)
+	}
+}
