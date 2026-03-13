@@ -929,6 +929,7 @@ func newKubernetesCmd() *cobra.Command {
 	}
 	cmd.AddCommand(newInspectCmd())
 	cmd.AddCommand(newKubernetesAuditCmd())
+	cmd.AddCommand(newRiskCmd())
 	return cmd
 }
 
