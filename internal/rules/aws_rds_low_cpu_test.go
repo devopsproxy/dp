@@ -3,8 +3,8 @@ package rules
 import (
 	"testing"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/policy"
+	"github.com/devopsproxy/dp/internal/models"
+	"github.com/devopsproxy/dp/internal/policy"
 )
 
 func TestAWSRDSLowCPURule_IDAndName(t *testing.T) {
@@ -266,12 +266,12 @@ func TestAWSRDSLowCPURule_Evaluate(t *testing.T) {
 
 	t.Run("only available low-CPU instances with known cost flagged from mixed set", func(t *testing.T) {
 		ctx := makeCtx(
-			models.AWSRDSInstance{DBInstanceID: "db-1", Region: region, Status: "available", AvgCPUPercent: 3.0, MonthlyCostUSD: 100.0},   // flagged: HIGH
-			models.AWSRDSInstance{DBInstanceID: "db-2", Region: region, Status: "available", AvgCPUPercent: 0.0, MonthlyCostUSD: 100.0},   // skipped: no CW data
-			models.AWSRDSInstance{DBInstanceID: "db-3", Region: region, Status: "available", AvgCPUPercent: 50.0, MonthlyCostUSD: 100.0},  // skipped: high CPU
-			models.AWSRDSInstance{DBInstanceID: "db-4", Region: region, Status: "stopped", AvgCPUPercent: 3.0, MonthlyCostUSD: 100.0},     // skipped: not available
-			models.AWSRDSInstance{DBInstanceID: "db-5", Region: region, Status: "available", AvgCPUPercent: 2.0, MonthlyCostUSD: 0},       // skipped: no cost data
-			models.AWSRDSInstance{DBInstanceID: "db-6", Region: region, Status: "available", AvgCPUPercent: 7.0, MonthlyCostUSD: 200.0},   // flagged: MEDIUM
+			models.AWSRDSInstance{DBInstanceID: "db-1", Region: region, Status: "available", AvgCPUPercent: 3.0, MonthlyCostUSD: 100.0},  // flagged: HIGH
+			models.AWSRDSInstance{DBInstanceID: "db-2", Region: region, Status: "available", AvgCPUPercent: 0.0, MonthlyCostUSD: 100.0},  // skipped: no CW data
+			models.AWSRDSInstance{DBInstanceID: "db-3", Region: region, Status: "available", AvgCPUPercent: 50.0, MonthlyCostUSD: 100.0}, // skipped: high CPU
+			models.AWSRDSInstance{DBInstanceID: "db-4", Region: region, Status: "stopped", AvgCPUPercent: 3.0, MonthlyCostUSD: 100.0},    // skipped: not available
+			models.AWSRDSInstance{DBInstanceID: "db-5", Region: region, Status: "available", AvgCPUPercent: 2.0, MonthlyCostUSD: 0},      // skipped: no cost data
+			models.AWSRDSInstance{DBInstanceID: "db-6", Region: region, Status: "available", AvgCPUPercent: 7.0, MonthlyCostUSD: 200.0},  // flagged: MEDIUM
 		)
 		findings := (AWSRDSLowCPURule{}).Evaluate(ctx)
 		if len(findings) != 2 {

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
+	"github.com/devopsproxy/dp/internal/models"
 )
 
 // BuildAssetGraph converts collected Kubernetes cluster inventory into an Asset

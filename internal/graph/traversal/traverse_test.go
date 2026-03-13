@@ -3,12 +3,15 @@ package traversal
 import (
 	"testing"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/graph"
+	"github.com/devopsproxy/dp/internal/graph"
 )
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
-func buildGraph(nodes []graph.Node, edges []struct{ from, to string; t graph.EdgeType }) *graph.Graph {
+func buildGraph(nodes []graph.Node, edges []struct {
+	from, to string
+	t        graph.EdgeType
+}) *graph.Graph {
 	g := graph.NewGraph()
 	for i := range nodes {
 		n := nodes[i]
@@ -50,7 +53,10 @@ func TestGraphTraversal_Basic(t *testing.T) {
 			{ID: "B", Type: graph.NodeTypeLoadBalancer, Name: "B"},
 			{ID: "C", Type: graph.NodeTypeIAMRole, Name: "C"},
 		},
-		[]struct{ from, to string; t graph.EdgeType }{
+		[]struct {
+			from, to string
+			t        graph.EdgeType
+		}{
 			{"A", "B", graph.EdgeTypeExposes},
 			{"B", "C", graph.EdgeTypeRoutesTo},
 		},
@@ -87,7 +93,10 @@ func TestGraphTraversal_CycleProtection(t *testing.T) {
 			{ID: "A", Type: graph.NodeTypeWorkload, Name: "A"},
 			{ID: "B", Type: graph.NodeTypeServiceAccount, Name: "B"},
 		},
-		[]struct{ from, to string; t graph.EdgeType }{
+		[]struct {
+			from, to string
+			t        graph.EdgeType
+		}{
 			{"A", "B", graph.EdgeTypeRunsAs},
 			{"B", "A", graph.EdgeTypeRunsAs}, // back-edge
 		},
@@ -253,7 +262,10 @@ func TestTraverseFromNode_EdgeFilter(t *testing.T) {
 			{ID: "sa", Type: graph.NodeTypeServiceAccount, Name: "sa"},
 			{ID: "ns", Type: graph.NodeTypeNamespace, Name: "ns"},
 		},
-		[]struct{ from, to string; t graph.EdgeType }{
+		[]struct {
+			from, to string
+			t        graph.EdgeType
+		}{
 			{"start", "sa", graph.EdgeTypeRunsAs},   // allowed
 			{"start", "ns", graph.EdgeTypeContains}, // blocked by filter
 		},

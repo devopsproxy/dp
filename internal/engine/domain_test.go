@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
+	"github.com/devopsproxy/dp/internal/models"
 )
 
 // ── stampDomain ───────────────────────────────────────────────────────────────

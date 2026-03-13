@@ -3,7 +3,7 @@ package graph
 import (
 	"testing"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
+	"github.com/devopsproxy/dp/internal/models"
 )
 
 // ── TestGraphBuilder_NodeRolePath ─────────────────────────────────────────────
@@ -130,7 +130,7 @@ func TestGraphBuilder_NodeIAMRoleEdge(t *testing.T) {
 	// Enrich node-a with a role; skip node-b (empty ARN) and a phantom node.
 	EnrichWithNodeRoles(g, map[string]string{
 		"node-a":       roleARN,
-		"node-b":       "",                                          // empty — must be skipped
+		"node-b":       "",                                        // empty — must be skipped
 		"node-missing": "arn:aws:iam::123:role/should-not-appear", // no Node node in graph
 	})
 
@@ -175,7 +175,7 @@ func TestBuildAssetGraph_NodeNodeType(t *testing.T) {
 		Nodes: []models.KubernetesNodeData{
 			{Name: "worker-1", ProviderID: "aws:///eu-west-1a/i-0111"},
 			{Name: "worker-2", ProviderID: "aws:///eu-west-1b/i-0222"},
-			{Name: ""},  // empty name — must be skipped
+			{Name: ""}, // empty name — must be skipped
 		},
 	}
 

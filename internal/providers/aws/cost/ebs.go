@@ -8,7 +8,7 @@ import (
 	ec2svc "github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
+	"github.com/devopsproxy/dp/internal/models"
 )
 
 // collectEBSVolumes pages through all non-deleted EBS volumes in region and

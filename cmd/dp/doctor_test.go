@@ -14,8 +14,8 @@ import (
 	k8sclient "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/providers/aws/common"
-	kube "github.com/pankaj-dahiya-devops/Devops-proxy/internal/providers/kubernetes"
+	"github.com/devopsproxy/dp/internal/providers/aws/common"
+	kube "github.com/devopsproxy/dp/internal/providers/kubernetes"
 )
 
 // ── AWS mock ──────────────────────────────────────────────────────────────────

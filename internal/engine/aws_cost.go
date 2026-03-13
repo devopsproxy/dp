@@ -9,11 +9,11 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/policy"
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/providers/aws/common"
-	awscost "github.com/pankaj-dahiya-devops/Devops-proxy/internal/providers/aws/cost"
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/rules"
+	"github.com/devopsproxy/dp/internal/models"
+	"github.com/devopsproxy/dp/internal/policy"
+	"github.com/devopsproxy/dp/internal/providers/aws/common"
+	awscost "github.com/devopsproxy/dp/internal/providers/aws/cost"
+	"github.com/devopsproxy/dp/internal/rules"
 )
 
 // AWSCostEngine is the production implementation of Engine.
@@ -23,7 +23,7 @@ type AWSCostEngine struct {
 	provider common.AWSClientProvider
 	cost     awscost.CostCollector
 	registry rules.RuleRegistry
-	policy *policy.PolicyConfig
+	policy   *policy.PolicyConfig
 }
 
 // NewAWSCostEngine constructs a AWSCostEngine wired to the supplied provider,

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/version"
+	"github.com/devopsproxy/dp/internal/version"
 )
 
 func TestVersionCmd_Output(t *testing.T) {

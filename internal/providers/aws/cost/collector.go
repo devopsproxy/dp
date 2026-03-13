@@ -5,8 +5,8 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/providers/aws/common"
+	"github.com/devopsproxy/dp/internal/models"
+	"github.com/devopsproxy/dp/internal/providers/aws/common"
 )
 
 // CollectOptions carries per-region collection parameters.

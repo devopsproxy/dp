@@ -6,7 +6,7 @@ import (
 	guardduty "github.com/aws/aws-sdk-go-v2/service/guardduty"
 	guarddutytype "github.com/aws/aws-sdk-go-v2/service/guardduty/types"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
+	"github.com/devopsproxy/dp/internal/models"
 )
 
 // collectGuardDutyStatus checks whether GuardDuty has an enabled detector in

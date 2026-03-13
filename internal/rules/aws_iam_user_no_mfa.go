@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
+	"github.com/devopsproxy/dp/internal/models"
 )
 
 // AWSIAMUserWithoutMFARule flags IAM users that have console access (a login

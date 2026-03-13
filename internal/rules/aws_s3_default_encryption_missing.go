@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
+	"github.com/devopsproxy/dp/internal/models"
 )
 
 // AWSS3DefaultEncryptionMissingRule flags S3 buckets that do not have server-side

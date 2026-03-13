@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
+	"github.com/devopsproxy/dp/internal/models"
 )
 
 // AWSRootAccessKeyExistsRule flags AWS accounts where the root account has active

@@ -12,7 +12,7 @@ package traversal
 import (
 	"sort"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/graph"
+	"github.com/devopsproxy/dp/internal/graph"
 )
 
 // TraversalOptions configures a TraverseFromNode call.

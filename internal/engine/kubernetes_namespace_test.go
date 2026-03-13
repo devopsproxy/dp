@@ -8,8 +8,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
-	kube "github.com/pankaj-dahiya-devops/Devops-proxy/internal/providers/kubernetes"
+	"github.com/devopsproxy/dp/internal/models"
+	kube "github.com/devopsproxy/dp/internal/providers/kubernetes"
 )
 
 // ── annotateNamespaceType unit tests ─────────────────────────────────────────

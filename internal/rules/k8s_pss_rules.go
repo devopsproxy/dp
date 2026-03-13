@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
+	"github.com/devopsproxy/dp/internal/models"
 )
 
 // ── K8S_POD_PRIVILEGED_CONTAINER ─────────────────────────────────────────────

@@ -3,7 +3,7 @@ package rules
 import (
 	"fmt"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
+	"github.com/devopsproxy/dp/internal/models"
 )
 
 // DefaultRuleRegistry is a simple, ordered, in-memory registry.

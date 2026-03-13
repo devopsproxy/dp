@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
+	"github.com/devopsproxy/dp/internal/models"
 )
 
 // psaEnforceLabel is the Pod Security Admission label that controls which Pod

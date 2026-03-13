@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
+	"github.com/devopsproxy/dp/internal/models"
 )
 
 // AWSRDSUnencryptedRule flags RDS instances that do not have storage encryption
@@ -40,9 +40,9 @@ func (r AWSRDSUnencryptedRule) Evaluate(ctx RuleContext) []models.Finding {
 			Recommendation: "Enable storage encryption for RDS instances. Encryption must be set at creation time; to encrypt an existing instance, take a snapshot, copy it with encryption enabled, and restore from that snapshot.",
 			DetectedAt:     time.Now().UTC(),
 			Metadata: map[string]any{
-				"engine":           inst.Engine,
+				"engine":            inst.Engine,
 				"db_instance_class": inst.DBInstanceClass,
-				"status":           inst.Status,
+				"status":            inst.Status,
 			},
 		})
 	}

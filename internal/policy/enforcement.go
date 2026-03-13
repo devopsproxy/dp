@@ -3,7 +3,7 @@ package policy
 import (
 	"strings"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
+	"github.com/devopsproxy/dp/internal/models"
 )
 
 // ShouldFail reports whether any finding in findings has a severity at or above

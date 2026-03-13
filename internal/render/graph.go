@@ -8,8 +8,8 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/graph"
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
+	"github.com/devopsproxy/dp/internal/graph"
+	"github.com/devopsproxy/dp/internal/models"
 )
 
 // ── Graph model ───────────────────────────────────────────────────────────────

@@ -9,7 +9,7 @@ import (
 	ce "github.com/aws/aws-sdk-go-v2/service/costexplorer"
 	cetypes "github.com/aws/aws-sdk-go-v2/service/costexplorer/types"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
+	"github.com/devopsproxy/dp/internal/models"
 )
 
 // collectCostSummary calls Cost Explorer GetCostAndUsage for [start, end) and

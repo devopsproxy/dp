@@ -22,11 +22,11 @@ No agent. No SaaS dependency. Runs offline. Outputs JSON or a table.
 
 ```bash
 # macOS (Apple Silicon)
-curl -L https://github.com/pankaj-dahiya-devops/Devops-proxy/releases/latest/download/dp_<version>_macOS_arm64.tar.gz | tar xz
+curl -L https://github.com/devopsproxy/dp/releases/latest/download/dp_<version>_macOS_arm64.tar.gz | tar xz
 chmod +x dp && sudo mv dp /usr/local/bin/
 
 # From source (Go 1.22+)
-git clone https://github.com/pankaj-dahiya-devops/Devops-proxy.git
+git clone https://github.com/devopsproxy/dp.git
 cd Devops-proxy && go build -o dp ./cmd/dp
 ```
 
@@ -241,18 +241,18 @@ See [docs/policy.md](docs/policy.md) for full reference.
 
 **Binary (recommended)**
 
-Pre-built binaries for Linux, macOS (Intel + Apple Silicon), and Windows are on the [GitHub Releases](https://github.com/pankaj-dahiya-devops/Devops-proxy/releases) page.
+Pre-built binaries for Linux, macOS (Intel + Apple Silicon), and Windows are on the [GitHub Releases](https://github.com/devopsproxy/dp/releases) page.
 
 ```bash
 # Linux amd64
-curl -L https://github.com/pankaj-dahiya-devops/Devops-proxy/releases/latest/download/dp_<version>_Linux_amd64.tar.gz | tar xz
+curl -L https://github.com/devopsproxy/dp/releases/latest/download/dp_<version>_Linux_amd64.tar.gz | tar xz
 chmod +x dp && sudo mv dp /usr/local/bin/
 ```
 
 **From source**
 
 ```bash
-git clone https://github.com/pankaj-dahiya-devops/Devops-proxy.git
+git clone https://github.com/devopsproxy/dp.git
 cd Devops-proxy
 go build -o dp ./cmd/dp
 ```

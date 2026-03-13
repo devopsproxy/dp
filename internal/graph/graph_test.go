@@ -3,7 +3,7 @@ package graph
 import (
 	"testing"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
+	"github.com/devopsproxy/dp/internal/models"
 )
 
 // ── TestGraphBuilder_IAMRoleS3Access ──────────────────────────────────────────

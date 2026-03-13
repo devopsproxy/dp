@@ -1,6 +1,6 @@
 package render
 
-import "github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
+import "github.com/devopsproxy/dp/internal/models"
 
 // FilterAttackPaths returns a new slice containing only those attack paths
 // whose Score is >= minScore. When minScore is 0 or negative the original

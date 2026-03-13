@@ -8,9 +8,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 
-	kube "github.com/pankaj-dahiya-devops/Devops-proxy/internal/providers/kubernetes"
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/rules"
-	k8scorepack "github.com/pankaj-dahiya-devops/Devops-proxy/internal/rulepacks/kubernetes_core"
+	kube "github.com/devopsproxy/dp/internal/providers/kubernetes"
+	k8scorepack "github.com/devopsproxy/dp/internal/rulepacks/kubernetes_core"
+	"github.com/devopsproxy/dp/internal/rules"
 )
 
 // admissionEngine builds a KubernetesEngine wired to the full kubernetes_core

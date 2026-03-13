@@ -7,7 +7,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	ec2svc "github.com/aws/aws-sdk-go-v2/service/ec2"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
+	"github.com/devopsproxy/dp/internal/models"
 )
 
 // collectSecurityGroupRules lists all EC2 security groups in the given region

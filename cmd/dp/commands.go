@@ -11,24 +11,24 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/engine"
-	dpgraph "github.com/pankaj-dahiya-devops/Devops-proxy/internal/graph"
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
-	dpoutput "github.com/pankaj-dahiya-devops/Devops-proxy/internal/output"
-	dprender "github.com/pankaj-dahiya-devops/Devops-proxy/internal/render"
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/policy"
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/providers/aws/common"
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/version"
-	awscost "github.com/pankaj-dahiya-devops/Devops-proxy/internal/providers/aws/cost"
-	awseks "github.com/pankaj-dahiya-devops/Devops-proxy/internal/providers/aws/eks"
-	awssecurity "github.com/pankaj-dahiya-devops/Devops-proxy/internal/providers/aws/security"
-	kube "github.com/pankaj-dahiya-devops/Devops-proxy/internal/providers/kubernetes"
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/rules"
-	costpack    "github.com/pankaj-dahiya-devops/Devops-proxy/internal/rulepacks/aws_cost"
-	dppack      "github.com/pankaj-dahiya-devops/Devops-proxy/internal/rulepacks/aws_dataprotection"
-	secpack     "github.com/pankaj-dahiya-devops/Devops-proxy/internal/rulepacks/aws_security"
-	k8scorepack "github.com/pankaj-dahiya-devops/Devops-proxy/internal/rulepacks/kubernetes_core"
-	k8sekpack   "github.com/pankaj-dahiya-devops/Devops-proxy/internal/rulepacks/kubernetes_eks"
+	"github.com/devopsproxy/dp/internal/engine"
+	dpgraph "github.com/devopsproxy/dp/internal/graph"
+	"github.com/devopsproxy/dp/internal/models"
+	dpoutput "github.com/devopsproxy/dp/internal/output"
+	"github.com/devopsproxy/dp/internal/policy"
+	"github.com/devopsproxy/dp/internal/providers/aws/common"
+	awscost "github.com/devopsproxy/dp/internal/providers/aws/cost"
+	awseks "github.com/devopsproxy/dp/internal/providers/aws/eks"
+	awssecurity "github.com/devopsproxy/dp/internal/providers/aws/security"
+	kube "github.com/devopsproxy/dp/internal/providers/kubernetes"
+	dprender "github.com/devopsproxy/dp/internal/render"
+	costpack "github.com/devopsproxy/dp/internal/rulepacks/aws_cost"
+	dppack "github.com/devopsproxy/dp/internal/rulepacks/aws_dataprotection"
+	secpack "github.com/devopsproxy/dp/internal/rulepacks/aws_security"
+	k8scorepack "github.com/devopsproxy/dp/internal/rulepacks/kubernetes_core"
+	k8sekpack "github.com/devopsproxy/dp/internal/rulepacks/kubernetes_eks"
+	"github.com/devopsproxy/dp/internal/rules"
+	"github.com/devopsproxy/dp/internal/version"
 )
 
 func newRootCmd() *cobra.Command {
@@ -1273,4 +1273,3 @@ func renderBlastRadiusJSON(w io.Writer, source string, result *dpgraph.BlastResu
 	enc.SetIndent("", "  ")
 	return enc.Encode(out)
 }
-

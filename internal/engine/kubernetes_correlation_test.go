@@ -8,8 +8,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
-	kube "github.com/pankaj-dahiya-devops/Devops-proxy/internal/providers/kubernetes"
+	"github.com/devopsproxy/dp/internal/models"
+	kube "github.com/devopsproxy/dp/internal/providers/kubernetes"
 )
 
 // ── Test helpers ──────────────────────────────────────────────────────────────
@@ -93,9 +93,9 @@ func TestRuleIDsForFinding_WithMergedRules(t *testing.T) {
 		t.Fatalf("expected 3 IDs; got %v", ids)
 	}
 	want := map[string]struct{}{
-		"K8S_PRIVILEGED_CONTAINER":    {},
+		"K8S_PRIVILEGED_CONTAINER":     {},
 		"K8S_POD_PRIVILEGED_CONTAINER": {},
-		"K8S_POD_CAP_SYS_ADMIN":       {},
+		"K8S_POD_CAP_SYS_ADMIN":        {},
 	}
 	for _, id := range ids {
 		if _, ok := want[id]; !ok {
@@ -590,7 +590,7 @@ func TestCorrelationEngine_Chain2_NoDefaultSA(t *testing.T) {
 func TestCorrelationEngine_Chain3_BothFindingsAnnotated(t *testing.T) {
 	cs := fake.NewSimpleClientset(
 		k8sNode("node-1", "4", "8Gi", "3800m", "7Gi"), // single node — fires K8S_CLUSTER_SINGLE_NODE
-		pssPrivilegedPod("priv-pod", "production"),      // CRITICAL
+		pssPrivilegedPod("priv-pod", "production"),    // CRITICAL
 	)
 	report, err := correlationEngine(cs, "chain3-ctx").RunAudit(context.Background(), KubernetesAuditOptions{})
 	if err != nil {
@@ -624,7 +624,7 @@ func TestCorrelationEngine_Chain3_MultipleNodes(t *testing.T) {
 	cs := fake.NewSimpleClientset(
 		k8sNode("node-1", "4", "8Gi", "3800m", "7Gi"),
 		k8sNode("node-2", "4", "8Gi", "3800m", "7Gi"), // multiple nodes
-		pssPrivilegedPod("priv-pod", "production"),      // CRITICAL
+		pssPrivilegedPod("priv-pod", "production"),    // CRITICAL
 	)
 	report, err := correlationEngine(cs, "chain3-multi-ctx").RunAudit(context.Background(), KubernetesAuditOptions{})
 	if err != nil {
@@ -889,7 +889,7 @@ func TestFilterByMinRiskScore_ExcludesNoScore(t *testing.T) {
 	findings := []models.Finding{
 		{RuleID: "A", Metadata: map[string]any{"risk_chain_score": 80}},
 		{RuleID: "B", Metadata: map[string]any{"namespace": "prod"}}, // no score
-		{RuleID: "C", Metadata: nil},                                  // nil metadata
+		{RuleID: "C", Metadata: nil},                                 // nil metadata
 	}
 	got := filterByMinRiskScore(findings, 10)
 	if len(got) != 1 || got[0].RuleID != "A" {
@@ -1452,8 +1452,8 @@ func TestCorrelationEngine_Chain6Beats4_HighestScoreWins(t *testing.T) {
 		EndpointPublicAccess: false,
 		LoggingTypes:         []string{"api", "audit", "authenticator"},
 		EncryptionEnabled:    true,
-		OIDCProviderARN:      "",                                // chain 6 trigger: no OIDC
-		NodeRolePolicies:     []string{"AdministratorAccess"},  // chain 4 trigger: over-permissive
+		OIDCProviderARN:      "",                              // chain 6 trigger: no OIDC
+		NodeRolePolicies:     []string{"AdministratorAccess"}, // chain 4 trigger: over-permissive
 	}
 	fakeClient := fake.NewSimpleClientset(
 		eksNode("node-1", "us-east-1a"),

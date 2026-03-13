@@ -3,7 +3,7 @@ package rules
 import (
 	"testing"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
+	"github.com/devopsproxy/dp/internal/models"
 )
 
 // eksClusterDataPhase5 builds a minimal KubernetesClusterData with EKSData
@@ -208,9 +208,9 @@ func TestPhase5AEKSRules_AllThreeFire(t *testing.T) {
 func TestPhase5AEKSRules_NoneFire_WhenAllSecure(t *testing.T) {
 	ctx := RuleContext{
 		ClusterData: eksClusterDataPhase5("all-good-cluster", "us-east-1",
-			false,                                          // private endpoint
-			[]string{"api", "audit", "authenticator"},     // all required log types
-			true,                                          // encryption enabled
+			false, // private endpoint
+			[]string{"api", "audit", "authenticator"}, // all required log types
+			true, // encryption enabled
 		),
 	}
 	phase5Rules := []Rule{

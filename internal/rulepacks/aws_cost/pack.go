@@ -8,7 +8,7 @@
 //  3. No other files need to change.
 package aws_cost
 
-import "github.com/pankaj-dahiya-devops/Devops-proxy/internal/rules"
+import "github.com/devopsproxy/dp/internal/rules"
 
 // New returns all AWS cost rules in the order they should be evaluated.
 func New() []rules.Rule {

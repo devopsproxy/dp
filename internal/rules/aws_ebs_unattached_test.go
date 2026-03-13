@@ -3,7 +3,7 @@ package rules
 import (
 	"testing"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
+	"github.com/devopsproxy/dp/internal/models"
 )
 
 func TestAWSEBSUnattachedRule_IDAndName(t *testing.T) {
@@ -148,8 +148,8 @@ func TestAWSEBSUnattachedRule_Evaluate(t *testing.T) {
 	t.Run("only unattached-available volumes flagged from mixed set", func(t *testing.T) {
 		ctx := makeCtx(
 			models.AWSEBSVolume{VolumeID: "vol-1", Region: region, SizeGB: 10, State: "available", Attached: false}, // flagged
-			models.AWSEBSVolume{VolumeID: "vol-2", Region: region, SizeGB: 10, State: "in-use", Attached: true},    // not flagged
-			models.AWSEBSVolume{VolumeID: "vol-3", Region: region, SizeGB: 10, State: "deleting", Attached: false}, // not flagged
+			models.AWSEBSVolume{VolumeID: "vol-2", Region: region, SizeGB: 10, State: "in-use", Attached: true},     // not flagged
+			models.AWSEBSVolume{VolumeID: "vol-3", Region: region, SizeGB: 10, State: "deleting", Attached: false},  // not flagged
 			models.AWSEBSVolume{VolumeID: "vol-4", Region: region, SizeGB: 10, State: "available", Attached: false}, // flagged
 		)
 		findings := (AWSEBSUnattachedRule{}).Evaluate(ctx)

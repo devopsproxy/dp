@@ -6,7 +6,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	cloudtrailsvc "github.com/aws/aws-sdk-go-v2/service/cloudtrail"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
+	"github.com/devopsproxy/dp/internal/models"
 )
 
 // collectCloudTrailStatus calls DescribeTrails to determine whether at least

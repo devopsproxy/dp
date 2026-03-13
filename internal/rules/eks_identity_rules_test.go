@@ -3,7 +3,7 @@ package rules
 import (
 	"testing"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
+	"github.com/devopsproxy/dp/internal/models"
 )
 
 // eksIdentityClusterData builds a KubernetesClusterData with EKSData for
@@ -298,7 +298,7 @@ func TestPhase5BEKSRules_AllThreeFire(t *testing.T) {
 		EKSData: &models.KubernetesEKSData{
 			ClusterName:      "all-bad-identity",
 			Region:           "us-east-1",
-			OIDCProviderARN:  "",                          // fires EKS_OIDC_PROVIDER_NOT_ASSOCIATED
+			OIDCProviderARN:  "",                              // fires EKS_OIDC_PROVIDER_NOT_ASSOCIATED
 			NodeRolePolicies: []string{"AdministratorAccess"}, // fires EKS_NODE_ROLE_OVERPERMISSIVE
 		},
 		ServiceAccounts: []models.KubernetesServiceAccountData{

@@ -3,7 +3,7 @@ package rules
 import (
 	"testing"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
+	"github.com/devopsproxy/dp/internal/models"
 )
 
 func TestAWSEBSGP2LegacyRule_IDAndName(t *testing.T) {
@@ -149,10 +149,10 @@ func TestAWSEBSGP2LegacyRule_Evaluate(t *testing.T) {
 
 	t.Run("only gp2 volumes flagged from mixed set", func(t *testing.T) {
 		ctx := makeCtx(
-			models.AWSEBSVolume{VolumeID: "vol-1", Region: region, VolumeType: "gp2", SizeGB: 10, State: "in-use", Attached: true},  // flagged
-			models.AWSEBSVolume{VolumeID: "vol-2", Region: region, VolumeType: "gp3", SizeGB: 10, State: "in-use", Attached: true},  // not flagged
-			models.AWSEBSVolume{VolumeID: "vol-3", Region: region, VolumeType: "gp2", SizeGB: 10, State: "in-use", Attached: true},  // flagged
-			models.AWSEBSVolume{VolumeID: "vol-4", Region: region, VolumeType: "io2", SizeGB: 10, State: "in-use", Attached: true},  // not flagged
+			models.AWSEBSVolume{VolumeID: "vol-1", Region: region, VolumeType: "gp2", SizeGB: 10, State: "in-use", Attached: true}, // flagged
+			models.AWSEBSVolume{VolumeID: "vol-2", Region: region, VolumeType: "gp3", SizeGB: 10, State: "in-use", Attached: true}, // not flagged
+			models.AWSEBSVolume{VolumeID: "vol-3", Region: region, VolumeType: "gp2", SizeGB: 10, State: "in-use", Attached: true}, // flagged
+			models.AWSEBSVolume{VolumeID: "vol-4", Region: region, VolumeType: "io2", SizeGB: 10, State: "in-use", Attached: true}, // not flagged
 		)
 		findings := (AWSEBSGP2LegacyRule{}).Evaluate(ctx)
 		if len(findings) != 2 {

@@ -7,7 +7,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	s3svc "github.com/aws/aws-sdk-go-v2/service/s3"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
+	"github.com/devopsproxy/dp/internal/models"
 )
 
 // collectS3Buckets lists all S3 buckets in the account and checks each
