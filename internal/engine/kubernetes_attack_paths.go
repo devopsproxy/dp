@@ -14,6 +14,7 @@ import (
 
 	"github.com/devopsproxy/dp/internal/graph"
 	"github.com/devopsproxy/dp/internal/graph/traversal"
+	"github.com/devopsproxy/dp/internal/models"
 )
 
 // GraphAttackPath represents a single attack path discovered through graph
@@ -42,8 +43,9 @@ var attackPathEdges = []graph.EdgeType{
 	graph.EdgeTypeRunsOn,
 	graph.EdgeTypeRunsAs,
 	graph.EdgeTypeAssumesRole,
-	graph.EdgeTypeAssumeRole, // Phase 16.1: IAMRole → IAMRole privilege escalation
+	graph.EdgeTypeAssumeRole,  // Phase 16.1: IAMRole → IAMRole privilege escalation
 	graph.EdgeTypeCanAccess,
+	graph.EdgeTypeAmplifies,   // Phase 18: asset → Misconfiguration amplification
 }
 
 // cloudResourceTypes is the set of NodeTypes that represent AWS cloud resources.
@@ -104,15 +106,20 @@ func FindGraphAttackPaths(g *graph.Graph) []GraphAttackPath {
 		}
 	}
 
-	// Sort by score descending; stable within same score by first node ID.
+	// Sort by priority: severity (CRITICAL→HIGH→MEDIUM), then score descending,
+	// then path length ascending (shorter = more direct attack path, higher risk).
+	// Since severity is a direct function of score the primary sort reduces to
+	// score descending; path length is the tiebreaker within the same score.
 	sort.SliceStable(results, func(i, j int) bool {
+		si := models.AttackPathSeverityFromScore(results[i].Score).SeverityRank()
+		sj := models.AttackPathSeverityFromScore(results[j].Score).SeverityRank()
+		if si != sj {
+			return si < sj // lower rank = higher severity = comes first
+		}
 		if results[i].Score != results[j].Score {
 			return results[i].Score > results[j].Score
 		}
-		if len(results[i].Nodes) > 0 && len(results[j].Nodes) > 0 {
-			return results[i].Nodes[0] < results[j].Nodes[0]
-		}
-		return false
+		return len(results[i].Nodes) < len(results[j].Nodes)
 	})
 
 	return results

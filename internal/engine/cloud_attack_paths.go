@@ -26,6 +26,10 @@ import (
 // and converts the internal GraphAttackPath results into models.CloudAttackPath
 // values for inclusion in AuditSummary.CloudAttackPaths.
 //
+// Phase 17.1 additions:
+//   - Severity is derived from score via models.AttackPathSeverityFromScore.
+//   - HasSensitiveData is set when the target node carries sensitivity=="high".
+//
 // Returns nil when g is nil or when no qualifying paths exist.
 func DetectCloudAttackPaths(g *graph.Graph) []models.CloudAttackPath {
 	if g == nil {
@@ -40,12 +44,18 @@ func DetectCloudAttackPaths(g *graph.Graph) []models.CloudAttackPath {
 	result := make([]models.CloudAttackPath, 0, len(graphPaths))
 	for _, gp := range graphPaths {
 		cp := models.CloudAttackPath{
-			Score: gp.Score,
-			Nodes: gp.Nodes,
+			Score:    gp.Score,
+			Nodes:    gp.Nodes,
+			Severity: models.AttackPathSeverityFromScore(gp.Score),
 		}
 		if len(gp.Nodes) > 0 {
 			cp.Source = gp.Nodes[0]
 			cp.Target = gp.Nodes[len(gp.Nodes)-1]
+
+			// Phase 17.1: mark paths that reach sensitive data.
+			if target := g.GetNode(cp.Target); target != nil {
+				cp.HasSensitiveData = target.Metadata["sensitivity"] == "high"
+			}
 		}
 		result = append(result, cp)
 	}

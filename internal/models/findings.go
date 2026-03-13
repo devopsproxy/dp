@@ -88,8 +88,9 @@ type AttackPath struct {
 // derived purely from the asset graph topology and cloud resource sensitivity
 // metadata. Populated by the graph traversal engine (Phase 16).
 type CloudAttackPath struct {
-	// Score is the computed risk score (0–100). Additive: +40 Internet exposure,
-	// +20 privileged workload, +20 IAM role involved, +20 sensitive data reached.
+	// Score is the computed risk score (0–110). Additive: +40 Internet exposure,
+	// +20 privileged workload, +20 IAM role involved, +20 sensitive data reached,
+	// +10 IAMRole→IAMRole cross-role escalation (Phase 16.1).
 	Score int `json:"score"`
 	// Source is the ID of the first node in the path (typically "Internet").
 	Source string `json:"source"`
@@ -97,6 +98,20 @@ type CloudAttackPath struct {
 	Target string `json:"target"`
 	// Nodes contains the ordered node IDs from source to target (inclusive).
 	Nodes []string `json:"nodes"`
+	// Severity classifies the path into CRITICAL / HIGH / MEDIUM based on
+	// score thresholds (Phase 17.1). Derived from Score; never empty.
+	Severity AttackPathSeverity `json:"severity,omitempty"`
+	// HasSensitiveData is true when the target cloud resource carries
+	// sensitivity == "high" metadata, indicating direct access to sensitive
+	// data (Phase 17.1).
+	HasSensitiveData bool `json:"has_sensitive_data,omitempty"`
+	// Explanation is a deterministic, offline human-readable description of
+	// the attack path generated from node type analysis (Phase 17).
+	Explanation string `json:"explanation,omitempty"`
+	// AIExplanation is an AI-generated description of the attack path produced
+	// by Anthropic or OpenAI when --ai-explain is set (Phase 17). Empty when
+	// no AI key is configured or the API call fails.
+	AIExplanation string `json:"ai_explanation,omitempty"`
 }
 
 // AuditSummary aggregates counts and totals across all findings.

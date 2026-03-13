@@ -478,6 +478,219 @@ The traversal engine's `inPath` map prevents a node from appearing twice in the 
 
 ---
 
+## Explain Engine (Phase 17)
+
+`internal/explain` generates human-readable descriptions for `CloudAttackPath`
+instances. Two modes are supported:
+
+| Mode | Function | Requires | Offline? |
+|------|----------|----------|---------|
+| Deterministic | `ExplainAttackPath(path)` | Nothing | Yes |
+| AI-generated | `ExplainAttackPathAI(ctx, path)` | `DP_ANTHROPIC_API_KEY` or `DP_OPENAI_API_KEY` | No |
+
+### Deterministic explanation
+
+`ExplainAttackPath` parses each node ID by prefix (`LoadBalancer_`, `Deployment_`,
+`Node_`, `ServiceAccount_`, `IAMRole_`, `S3Bucket_`, etc.) and emits a
+per-node security sentence. The sentences are joined with spaces to produce a
+complete path description. No network calls are made; the function is pure and
+works in air-gapped environments.
+
+### AI explanation
+
+`ExplainAttackPathAI` sends a prompt to Anthropic (preferred) or OpenAI using
+plain `net/http` — no external SDK dependencies are added. The prompt asks the
+model to explain the attack path in 2–3 sentences for a developer audience.
+AI calls are optional: `dp` runs fully offline when no key is configured.
+A failed AI call is silently ignored; `AIExplanation` remains empty.
+
+### CLI integration
+
+`--ai-explain` flag on `dp kubernetes audit` enables AI explanations. Both
+`Explanation` (deterministic) and `AIExplanation` (AI) are populated before
+`writeReportToFile`, so they appear in JSON file output. The `renderCloudAttackPaths`
+renderer prints `Explanation (AI):` when an AI explanation is available, falling
+back to `Explanation:` for the deterministic text.
+
+### Provider selection
+
+`IsAIAvailable()` returns the preferred provider name and a boolean. Anthropic
+(`DP_ANTHROPIC_API_KEY`) is preferred when both keys are present; OpenAI
+(`DP_OPENAI_API_KEY`) is the fallback.
+
+---
+
+## Attack Path Prioritization (Phase 17.1)
+
+Every `CloudAttackPath` carries a `Severity` classification derived from its
+numeric score and a `HasSensitiveData` flag for blast-radius context.
+
+### Severity thresholds
+
+| Score range | Severity | Meaning |
+|-------------|----------|---------|
+| ≥ 90 | **CRITICAL** | Internet-reachable path to sensitive data; immediate action required |
+| 70 – 89 | **HIGH** | Significant risk; missing one or more amplifying factors |
+| < 70 | **MEDIUM** | Partial attack chain; lower overall impact |
+
+Derived by `models.AttackPathSeverityFromScore(score)` in `internal/models/attack_paths.go`.
+
+### Sort order
+
+Paths are ordered by:
+1. **Severity** ascending rank (CRITICAL first)
+2. **Score** descending within severity
+3. **Path length** ascending (shorter = more direct = higher risk) within the same score
+
+### Sensitive data flag
+
+`HasSensitiveData` is `true` when the target cloud resource node carries
+`Metadata["sensitivity"] == "high"`. Set in `DetectCloudAttackPaths` by
+inspecting the asset graph. Rendered as `[SENSITIVE]` on the target node line
+in table output.
+
+### CLI rendering
+
+```
+ATTACK PATH SUMMARY
+
+  CRITICAL: 1
+  HIGH: 2
+
+CRITICAL ATTACK PATH (Score: 100)
+
+Internet
+ → LoadBalancer_kafka-ui
+ → Deployment_platform-api
+ → Node_ip-10-3-23-253
+ → IAMRole_admin
+ → S3Bucket_customer-data [SENSITIVE]
+
+Explanation: Traffic enters from the Internet. ...
+```
+
+### JSON fields
+
+```json
+{
+  "severity": "CRITICAL",
+  "score": 100,
+  "has_sensitive_data": true,
+  "nodes": ["Internet", "LoadBalancer_kafka-ui", "..."]
+}
+```
+
+---
+
+## Node Role Identity Bridge
+
+Kubernetes pods on EKS can reach AWS cloud resources in two ways:
+
+1. **IRSA** (IAM Roles for Service Accounts) — a ServiceAccount annotation grants the
+   pod permission to assume a named IAM role via OIDC federation.
+
+2. **Instance profile** — the pod inherits the IAM permissions of the EC2 node it runs
+   on via the node's attached instance profile role. No per-pod annotation required.
+
+The node role path is the less visible of the two: no IRSA annotation in the pod spec,
+no `eks.amazonaws.com/role-arn` on the ServiceAccount. But the blast radius can be
+identical or larger, since every pod on the node shares the same role.
+
+### Attack path
+
+```
+Internet → LoadBalancer → Deployment → Node → IAMRole → CloudResource
+```
+
+The graph encodes this via two edge types:
+
+| Edge | From | To | Meaning |
+|------|------|----|---------|
+| `RUNS_ON` | Workload | Node | Pod(s) in the workload are scheduled on this node |
+| `ASSUMES_ROLE` | Node | IAMRole | The node's EC2 instance profile grants access to this role |
+
+Both edges are included in `attackPathEdges` (traversal) and `traversalEdgeSet`
+(blast radius).
+
+### Concrete resolver (`DefaultNodeRoleResolver`)
+
+File: `internal/providers/aws/ec2/resolver.go`
+
+`DefaultNodeRoleResolver` implements `engine.NodeIAMRoleResolver` using two AWS API calls:
+
+1. **EC2 `DescribeInstances`** — extracts the `IamInstanceProfile.Arn` from the EC2
+   instance identified by the node's `ProviderID`
+   (e.g. `aws:///us-east-1a/i-0123456789abcdef0`).
+
+2. **IAM `GetInstanceProfile`** — resolves the profile name to the ARN of the first
+   attached `Role`. This is more accurate than the string-substitution heuristic
+   (`:instance-profile/` → `:role/`) used in Phase 14 helpers, handling cases where
+   the profile name and role name differ.
+
+```go
+resolver := ec2.NewDefaultNodeRoleResolver(ec2Client, iamClient)
+eng.WithNodeRoleResolver(resolver)
+```
+
+The resolver is injected via `WithNodeRoleResolver` on `KubernetesEngine` and is
+optional — when nil, node-role enrichment is silently skipped and only IRSA paths
+are detected.
+
+### Blast radius
+
+`ComputeBlastRadius(g, deploymentID)` traverses `RUNS_ON` → `ASSUMES_ROLE` →
+`CAN_ACCESS` edges, so the blast radius of a Deployment correctly includes cloud
+resources reachable via the node's instance-profile role, even when IRSA is not used.
+
+---
+
+## Misconfiguration Bridging (Phase 18)
+
+Phase 18 connects the rule-based finding engine with the asset graph so that
+detected security misconfigurations become first-class nodes in the graph topology.
+This allows the graph traversal engine to surface misconfigurations inside attack
+paths, making them visible alongside the infrastructure nodes they amplify.
+
+### How it works
+
+After rule evaluation and finding annotation (`annotateStructuralTopology`),
+the engine calls `EnrichWithFindings(graph, findings)`. This function iterates
+the merged findings and injects `Misconfiguration` nodes into the asset graph
+for supported rule IDs:
+
+| Rule ID | Misconfiguration type | Attachment |
+|---------|----------------------|------------|
+| `K8S_SERVICE_PUBLIC_LOADBALANCER` | `PublicLoadBalancer` | `Internet → Misconfig` (EXPOSES); `LBNode → Misconfig` (AMPLIFIES) |
+| `EKS_NODE_ROLE_OVERPERMISSIVE` | `WildcardIAMRole` | `IAMRole → Misconfig` (AMPLIFIES) for all IAM role nodes |
+| `K8S_POD_RUN_AS_ROOT` / `K8S_PRIVILEGED_CONTAINER` / `K8S_POD_CAP_SYS_ADMIN` | `PrivilegedContainer` | `WorkloadNode → Misconfig` (AMPLIFIES) |
+
+`DetectCloudAttackPaths` runs after `EnrichWithFindings` so the traversal
+engine sees all Misconfiguration nodes. The `AMPLIFIES` edge type is included
+in `attackPathEdges`, enabling traversal through Misconfiguration nodes.
+
+### CLI rendering
+
+Misconfiguration nodes in attack paths are rendered in human-readable form:
+
+```
+Internet
+ → LoadBalancer_kafka-ui
+ → PublicLoadBalancer (kafka-ui)   ← Misconfiguration node
+ → Deployment_api
+ → IAMRole_admin
+ → S3Bucket_data [SENSITIVE]
+```
+
+### Design constraints
+
+- Rule detection logic is never modified — `EnrichWithFindings` only reads findings
+- Node injection is idempotent (first-write-wins in `graph.AddNode`)
+- Edge injection is idempotent (`graph.AddEdge` deduplicates)
+- `EnrichWithFindings` is a no-op when the asset graph is nil (graph build failure)
+- Unrecognised rule IDs are silently ignored
+
+---
+
 ## Design decisions
 
 | Decision | Choice | Rationale |

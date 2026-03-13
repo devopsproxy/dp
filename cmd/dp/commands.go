@@ -21,6 +21,7 @@ import (
 	awseks "github.com/devopsproxy/dp/internal/providers/aws/eks"
 	awssecurity "github.com/devopsproxy/dp/internal/providers/aws/security"
 	kube "github.com/devopsproxy/dp/internal/providers/kubernetes"
+	dpexplain "github.com/devopsproxy/dp/internal/explain"
 	dprender "github.com/devopsproxy/dp/internal/render"
 	costpack "github.com/devopsproxy/dp/internal/rulepacks/aws_cost"
 	dppack "github.com/devopsproxy/dp/internal/rulepacks/aws_dataprotection"
@@ -523,16 +524,89 @@ func renderKubernetesAuditOutput(w io.Writer, report *models.AuditReport, output
 	return nil
 }
 
-// renderCloudAttackPaths prints CRITICAL ATTACK PATH sections for each
-// graph-traversal-derived Internet→sensitive-data path (Phase 16).
-// Each section shows the full node chain from Internet to the sensitive target.
+// renderCloudAttackPaths prints a severity summary followed by individual
+// ATTACK PATH sections (Phase 16/17.1). Each section renders one node per
+// line with a leading " →" arrow, and marks the target node [SENSITIVE] when
+// HasSensitiveData is set. Explanation lines follow when present (Phase 17).
 func renderCloudAttackPaths(w io.Writer, paths []models.CloudAttackPath) {
+	// ── Severity summary ────────────────────────────────────────────────────
+	counts := map[models.AttackPathSeverity]int{}
 	for _, p := range paths {
-		fmt.Fprintln(w, "CRITICAL ATTACK PATH")
-		fmt.Fprintln(w)
-		fmt.Fprintln(w, strings.Join(p.Nodes, " → "))
-		fmt.Fprintln(w)
+		sev := p.Severity
+		if sev == "" {
+			sev = models.AttackPathSeverityFromScore(p.Score)
+		}
+		counts[sev]++
 	}
+	fmt.Fprintln(w, "ATTACK PATH SUMMARY")
+	fmt.Fprintln(w)
+	for _, sev := range []models.AttackPathSeverity{
+		models.AttackPathSeverityCritical,
+		models.AttackPathSeverityHigh,
+		models.AttackPathSeverityMedium,
+	} {
+		if n := counts[sev]; n > 0 {
+			fmt.Fprintf(w, "  %s: %d\n", sev, n)
+		}
+	}
+	fmt.Fprintln(w)
+
+	// ── Individual path sections ─────────────────────────────────────────────
+	for _, p := range paths {
+		sev := p.Severity
+		if sev == "" {
+			sev = models.AttackPathSeverityFromScore(p.Score)
+		}
+		fmt.Fprintf(w, "%s ATTACK PATH (Score: %d)\n", sev, p.Score)
+		fmt.Fprintln(w)
+
+		for i, nodeID := range p.Nodes {
+			label := renderCloudAttackPathNode(nodeID)
+			if i == len(p.Nodes)-1 && p.HasSensitiveData {
+				label += " [SENSITIVE]"
+			}
+			if i == 0 {
+				fmt.Fprintln(w, label)
+			} else {
+				fmt.Fprintf(w, " → %s\n", label)
+			}
+		}
+		fmt.Fprintln(w)
+
+		if p.AIExplanation != "" {
+			fmt.Fprintf(w, "Explanation (AI): %s\n", p.AIExplanation)
+			fmt.Fprintln(w)
+		} else if p.Explanation != "" {
+			fmt.Fprintf(w, "Explanation: %s\n", p.Explanation)
+			fmt.Fprintln(w)
+		}
+	}
+}
+
+// renderCloudAttackPathNode formats a graph node ID for display in an attack
+// path section. Misconfiguration nodes (Phase 18) are rendered using the
+// human-readable name stored in the ID, e.g.:
+//
+//	"Misconfiguration_PublicLoadBalancer_kafka-ui" → "PublicLoadBalancer (kafka-ui)"
+//	"Misconfiguration_WildcardIAMRole"             → "WildcardIAMRole"
+//	"Misconfiguration_PrivilegedContainer_web"     → "PrivilegedContainer (web)"
+//
+// All other nodes are returned as-is.
+func renderCloudAttackPathNode(nodeID string) string {
+	const prefix = "Misconfiguration_"
+	if !strings.HasPrefix(nodeID, prefix) {
+		return nodeID
+	}
+	rest := nodeID[len(prefix):]
+	// rest is e.g. "PublicLoadBalancer_kafka-ui" or "WildcardIAMRole"
+	idx := strings.Index(rest, "_")
+	if idx < 0 {
+		// No resource suffix — return the misconfig type name directly.
+		return rest
+	}
+	miscType := rest[:idx]
+	resourceName := strings.ReplaceAll(rest[idx+1:], "_", "-")
+	return fmt.Sprintf("%s (%s)", miscType, resourceName)
 }
 
 // renderRiskChainTable prints attack paths (Phase 6) and risk chains (Phase 5D)
@@ -942,6 +1016,7 @@ func newKubernetesAuditCmd() *cobra.Command {
 		minAttackScore int
 		attackGraph    bool
 		graphFormat    string
+		aiExplain      bool
 	)
 
 	cmd := &cobra.Command{
@@ -1000,6 +1075,14 @@ func newKubernetesAuditCmd() *cobra.Command {
 			report, err := eng.RunAudit(cmd.Context(), opts)
 			if err != nil {
 				return fmt.Errorf("kubernetes audit failed: %w", err)
+			}
+
+			// Populate deterministic and (optionally) AI explanations on cloud
+			// attack paths before file write so they appear in JSON output too.
+			if len(report.Summary.CloudAttackPaths) > 0 {
+				report.Summary.CloudAttackPaths = dpexplain.PopulateExplanations(
+					cmd.Context(), report.Summary.CloudAttackPaths, aiExplain,
+				)
 			}
 
 			if filePath != "" {
@@ -1088,6 +1171,7 @@ func newKubernetesAuditCmd() *cobra.Command {
 	cmd.Flags().IntVar(&minAttackScore, "min-attack-score", 0, "Only render attack paths with score >= this value (requires --show-risk-chains)")
 	cmd.Flags().BoolVar(&attackGraph, "attack-graph", false, "Render attack paths as a graph (requires --show-risk-chains)")
 	cmd.Flags().StringVar(&graphFormat, "graph-format", "mermaid", "Graph output format: mermaid or graphviz (used with --attack-graph)")
+	cmd.Flags().BoolVar(&aiExplain, "ai-explain", false, "Add AI-generated explanations to cloud attack paths (requires DP_ANTHROPIC_API_KEY or DP_OPENAI_API_KEY)")
 
 	return cmd
 }
