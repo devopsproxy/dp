@@ -71,9 +71,47 @@ func TestEncodeRiskJSON_ValidJSON(t *testing.T) {
 		t.Fatalf("encodeRiskJSON returned error: %v", err)
 	}
 
-	var decoded []risk.RiskFinding
+	// Unmarshal into generic map to inspect exact keys.
+	var decoded []map[string]interface{}
 	if err := json.Unmarshal(buf.Bytes(), &decoded); err != nil {
 		t.Fatalf("output is not valid JSON: %v\noutput: %s", err, buf.String())
+	}
+	if len(decoded) != 1 {
+		t.Fatalf("expected 1 element; got %d", len(decoded))
+	}
+}
+
+func TestEncodeRiskJSON_NoTitleField(t *testing.T) {
+	findings := []risk.RiskFinding{
+		{
+			Title:    "Internet → haproxy → ip-10-3-23-253.ec2.internal",
+			Path:     []string{"Internet", "haproxy", "ip-10-3-23-253.ec2.internal"},
+			Score:    70,
+			Severity: "HIGH",
+		},
+	}
+
+	var buf bytes.Buffer
+	if err := encodeRiskJSON(&buf, findings); err != nil {
+		t.Fatalf("encodeRiskJSON: %v", err)
+	}
+
+	// Decode into map so we can inspect every key.
+	var decoded []map[string]interface{}
+	if err := json.Unmarshal(buf.Bytes(), &decoded); err != nil {
+		t.Fatalf("not valid JSON: %v", err)
+	}
+	if len(decoded) == 0 {
+		t.Fatal("expected non-empty array")
+	}
+	if _, ok := decoded[0]["title"]; ok {
+		t.Error(`JSON must not contain "title" field`)
+	}
+	// Required fields must still be present.
+	for _, field := range []string{"severity", "score", "path"} {
+		if _, ok := decoded[0][field]; !ok {
+			t.Errorf("JSON missing required field %q", field)
+		}
 	}
 }
 
