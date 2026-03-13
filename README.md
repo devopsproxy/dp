@@ -74,6 +74,8 @@ echo $?  # 1 if HIGH or CRITICAL findings exist
 | Graphviz SVG | `dp kubernetes audit --show-risk-chains --attack-graph --graph-format graphviz \| dot -Tsvg > out.svg` | |
 | Validate policy file | `dp policy validate --policy ./dp.yaml` | no audit run |
 | Check environment | `dp doctor` | credentials, kubeconfig, policy |
+| Blast radius (workload) | `dp blast-radius deployment/platform-api` | cloud resources reachable from a workload |
+| Blast radius (JSON) | `dp blast-radius deployment/platform-api --output json` | structured JSON output |
 
 ---
 
@@ -118,6 +120,62 @@ graph TD
 ```
 
 Every edge reflects a **real Kubernetes relationship** (Service selector match, pod ownerReference, IRSA annotation). Pods collapse into their parent workload — one `Deployment_*` node regardless of replica count.
+
+---
+
+## Blast Radius Analysis
+
+`dp blast-radius` computes which AWS cloud resources are reachable from a given Kubernetes workload or service account by traversing the asset graph:
+
+```
+Workload → ServiceAccount → IAM Role → S3 Bucket / Secret / DynamoDB / KMS Key
+```
+
+```bash
+# Table output
+dp blast-radius deployment/platform-api
+
+# JSON output
+dp blast-radius deployment/platform-api --output json
+
+# ServiceAccount as starting point
+dp blast-radius serviceaccount/api-sa
+```
+
+**Example table output:**
+
+```
+Blast Radius
+
+Source: Deployment platform-api (infra)
+
+Reachable identities:
+  IAM Role: platform-api-role
+
+Reachable resources:
+
+S3 Buckets:
+  - customer-data
+  - backups
+
+Secrets:
+  - prod/db-password
+```
+
+**Example JSON output:**
+
+```json
+{
+  "source": "deployment/platform-api",
+  "identities": ["platform-api-role"],
+  "resources": {
+    "s3": ["backups", "customer-data"],
+    "secretsmanager": ["prod/db-password"]
+  }
+}
+```
+
+Cloud resource nodes are only present in the graph when `IAMAccessResolver` is configured on the engine (Phase 12). If no IAM resolver is wired, only the IAM role node itself is reported as a reachable identity.
 
 ---
 
