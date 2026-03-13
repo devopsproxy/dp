@@ -212,6 +212,47 @@ When `assetGraph` is non-nil, `BuildAttackGraph` uses `HasEdge` / `EdgesFrom` fo
 
 ---
 
+---
+
+## Graph Traversal Queries
+
+The `internal/graph` package exposes read-only traversal operations that consume the asset graph without modifying rule findings, scores, or any engine state.
+
+### Blast Radius (`blast.go`)
+
+`ComputeBlastRadius(g *Graph, startNodeID string) (*BlastResult, error)` performs a BFS from a starting node, following only the attack-relevant edge subset:
+
+| Edge type | Meaning |
+|-----------|---------|
+| `RUNS_AS` | Workload is bound to a ServiceAccount |
+| `ASSUMES_ROLE` | ServiceAccount has IRSA annotation for an IAM role |
+| `CAN_ACCESS` | IAM role's policies grant access to a cloud resource |
+
+All other edge types (`EXPOSES`, `ROUTES_TO`, `CONTAINS`) are ignored — the traversal stays on the identity/access path, not the network path.
+
+**Collection rules:**
+
+- `IAMRole` nodes → `BlastResult.Identities`
+- `S3Bucket`, `SecretsManagerSecret`, `DynamoDBTable`, `KMSKey` nodes → `BlastResult.Resources[NodeType]`
+- Cloud resource nodes are treated as leaves and not enqueued for further traversal
+
+**Node resolution from user input:**
+
+`ResolveStartNode("deployment/platform-api")` → `sanitizeID("Deployment_platform-api")`
+
+Supported kind prefixes: `deployment`, `statefulset`, `daemonset`, `job`, `cronjob`, `serviceaccount`.
+
+**CLI command:**
+
+```bash
+dp blast-radius deployment/platform-api
+dp blast-radius serviceaccount/api-sa --output json
+```
+
+The command runs `RunAudit` to build the asset graph, then traverses it — it does not evaluate any rules or apply policy.
+
+---
+
 ## Design decisions
 
 | Decision | Choice | Rationale |

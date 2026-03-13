@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/engine"
+	dpgraph "github.com/pankaj-dahiya-devops/Devops-proxy/internal/graph"
 	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
 	dpoutput "github.com/pankaj-dahiya-devops/Devops-proxy/internal/output"
 	dprender "github.com/pankaj-dahiya-devops/Devops-proxy/internal/render"
@@ -40,6 +41,7 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(newPolicyCmd())
 	root.AddCommand(newVersionCmd())
 	root.AddCommand(newDoctorCmd())
+	root.AddCommand(newBlastRadiusCmd())
 	return root
 }
 
@@ -1067,5 +1069,204 @@ func newKubernetesAuditCmd() *cobra.Command {
 	cmd.Flags().StringVar(&graphFormat, "graph-format", "mermaid", "Graph output format: mermaid or graphviz (used with --attack-graph)")
 
 	return cmd
+}
+
+// ── blast-radius command ──────────────────────────────────────────────────────
+
+// newBlastRadiusCmd implements dp blast-radius <resource>.
+// It connects to the cluster, builds the asset graph, and computes which cloud
+// identities and resources are reachable from the given workload or service
+// account via RUNS_AS → ASSUMES_ROLE → CAN_ACCESS traversal.
+func newBlastRadiusCmd() *cobra.Command {
+	var (
+		contextName string
+		outputFmt   string
+	)
+
+	cmd := &cobra.Command{
+		Use:          "blast-radius <resource>",
+		Short:        "Compute cloud resources reachable from a Kubernetes workload or service account",
+		SilenceUsage: true,
+		Args:         cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			resourceRef := args[0]
+
+			nodeID, ok := dpgraph.ResolveStartNode(resourceRef)
+			if !ok {
+				return fmt.Errorf("unrecognised resource reference %q: use kind/name (e.g. deployment/my-app, serviceaccount/my-sa)", resourceRef)
+			}
+
+			provider := kube.NewDefaultKubeClientProvider()
+
+			coreRegistry := rules.NewDefaultRuleRegistry()
+			for _, r := range k8scorepack.New() {
+				coreRegistry.Register(r)
+			}
+			eksRegistry := rules.NewDefaultRuleRegistry()
+			for _, r := range k8sekpack.New() {
+				eksRegistry.Register(r)
+			}
+
+			eng := engine.NewKubernetesEngineWithEKS(
+				provider, coreRegistry, eksRegistry,
+				awseks.NewDefaultEKSCollector(), nil,
+			)
+
+			if _, err := eng.RunAudit(cmd.Context(), engine.KubernetesAuditOptions{
+				ContextName: contextName,
+			}); err != nil {
+				return fmt.Errorf("collect cluster data: %w", err)
+			}
+
+			ag := eng.AssetGraph()
+			if ag == nil {
+				return fmt.Errorf("asset graph could not be built for this cluster")
+			}
+
+			result, err := dpgraph.ComputeBlastRadius(ag, nodeID)
+			if err != nil {
+				return fmt.Errorf("blast radius: %w", err)
+			}
+
+			return renderBlastRadius(os.Stdout, resourceRef, result, outputFmt)
+		},
+	}
+
+	cmd.Flags().StringVar(&contextName, "context", "", "Kubeconfig context to use (default: current context)")
+	cmd.Flags().StringVar(&outputFmt, "output", "table", "Output format: json or table")
+
+	return cmd
+}
+
+// renderBlastRadius dispatches to the JSON or table renderer.
+func renderBlastRadius(w io.Writer, source string, result *dpgraph.BlastResult, outputFmt string) error {
+	if outputFmt == "json" {
+		return renderBlastRadiusJSON(w, source, result)
+	}
+	return renderBlastRadiusTable(w, source, result)
+}
+
+// blastResourceKey maps a graph NodeType to its JSON output key.
+func blastResourceKey(nt dpgraph.NodeType) string {
+	switch nt {
+	case dpgraph.NodeTypeS3Bucket:
+		return "s3"
+	case dpgraph.NodeTypeSecretsManagerSecret:
+		return "secretsmanager"
+	case dpgraph.NodeTypeDynamoDBTable:
+		return "dynamodb"
+	case dpgraph.NodeTypeKMSKey:
+		return "kms"
+	default:
+		return strings.ToLower(string(nt))
+	}
+}
+
+// blastResourceLabel maps a graph NodeType to its human-readable section header.
+func blastResourceLabel(nt dpgraph.NodeType) string {
+	switch nt {
+	case dpgraph.NodeTypeS3Bucket:
+		return "S3 Buckets"
+	case dpgraph.NodeTypeSecretsManagerSecret:
+		return "Secrets"
+	case dpgraph.NodeTypeDynamoDBTable:
+		return "DynamoDB Tables"
+	case dpgraph.NodeTypeKMSKey:
+		return "KMS Keys"
+	default:
+		return string(nt)
+	}
+}
+
+// blastSourceDisplay formats a human-readable source label from the start node.
+func blastSourceDisplay(node *dpgraph.Node) string {
+	if node == nil {
+		return ""
+	}
+	kind := node.Metadata["kind"]
+	if kind == "" {
+		kind = string(node.Type)
+	}
+	ns := node.Metadata["namespace"]
+	if ns != "" {
+		return fmt.Sprintf("%s %s (%s)", kind, node.Name, ns)
+	}
+	return fmt.Sprintf("%s %s", kind, node.Name)
+}
+
+// renderBlastRadiusTable writes a human-readable blast radius report.
+func renderBlastRadiusTable(w io.Writer, _ string, result *dpgraph.BlastResult) error {
+	fmt.Fprintln(w, "Blast Radius")
+	fmt.Fprintln(w)
+	fmt.Fprintf(w, "Source: %s\n", blastSourceDisplay(result.StartNode))
+	fmt.Fprintln(w)
+
+	if len(result.Identities) == 0 && len(result.Resources) == 0 {
+		fmt.Fprintln(w, "No reachable cloud identities or resources found.")
+		return nil
+	}
+
+	if len(result.Identities) > 0 {
+		fmt.Fprintln(w, "Reachable identities:")
+		for _, n := range result.Identities {
+			fmt.Fprintf(w, "  IAM Role: %s\n", n.Name)
+		}
+		fmt.Fprintln(w)
+	}
+
+	if len(result.Resources) > 0 {
+		fmt.Fprintln(w, "Reachable resources:")
+		fmt.Fprintln(w)
+		// Print resource sections in a consistent order.
+		order := []dpgraph.NodeType{
+			dpgraph.NodeTypeS3Bucket,
+			dpgraph.NodeTypeSecretsManagerSecret,
+			dpgraph.NodeTypeDynamoDBTable,
+			dpgraph.NodeTypeKMSKey,
+		}
+		for _, nt := range order {
+			nodes, ok := result.Resources[nt]
+			if !ok || len(nodes) == 0 {
+				continue
+			}
+			fmt.Fprintf(w, "%s:\n", blastResourceLabel(nt))
+			for _, n := range nodes {
+				fmt.Fprintf(w, "  - %s\n", n.Name)
+			}
+		}
+	}
+	return nil
+}
+
+// renderBlastRadiusJSON writes the blast radius result as indented JSON.
+func renderBlastRadiusJSON(w io.Writer, source string, result *dpgraph.BlastResult) error {
+	type output struct {
+		Source     string              `json:"source"`
+		Identities []string            `json:"identities"`
+		Resources  map[string][]string `json:"resources"`
+	}
+
+	out := output{
+		Source:    source,
+		Resources: make(map[string][]string),
+	}
+
+	for _, n := range result.Identities {
+		out.Identities = append(out.Identities, n.Name)
+	}
+	if out.Identities == nil {
+		out.Identities = []string{}
+	}
+
+	for nt, nodes := range result.Resources {
+		key := blastResourceKey(nt)
+		for _, n := range nodes {
+			out.Resources[key] = append(out.Resources[key], n.Name)
+		}
+	}
+
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(out)
 }
 
