@@ -20,9 +20,9 @@ builds:
       - CGO_ENABLED=0
     ldflags:
       - -s -w
-      - -X github.com/pankaj-dahiya-devops/Devops-proxy/internal/version.Version={{ .Version }}
-      - -X github.com/pankaj-dahiya-devops/Devops-proxy/internal/version.Commit={{ .ShortCommit }}
-      - -X github.com/pankaj-dahiya-devops/Devops-proxy/internal/version.Date={{ .Date }}
+      - -X github.com/devopsproxy/dp/internal/version.Version={{ .Version }}
+      - -X github.com/devopsproxy/dp/internal/version.Commit={{ .ShortCommit }}
+      - -X github.com/devopsproxy/dp/internal/version.Date={{ .Date }}
 
 archives:
   - formats:
@@ -41,8 +41,8 @@ archives:
 
 release:
   github:
-    owner: pankaj-dahiya-devops
-    name: Devops-proxy
+    owner: devopsproxy
+    name: dp
 
 changelog:
   use: git
