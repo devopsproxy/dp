@@ -141,6 +141,11 @@ type PodInfo struct {
 	// For uncontrolled pods this equals the pod name.
 	WorkloadName string
 
+	// NodeName is the Kubernetes node name the pod is scheduled on
+	// (spec.nodeName). Used in Phase 14 to build Workload → Node (RUNS_ON)
+	// edges in the asset graph.
+	NodeName string
+
 	// Containers holds per-container security and resource data.
 	Containers []ContainerInfo
 }

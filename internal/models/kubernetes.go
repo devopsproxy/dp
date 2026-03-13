@@ -127,6 +127,11 @@ type KubernetesPodData struct {
 	// For uncontrolled pods this equals the pod name.
 	WorkloadName string `json:"workload_name,omitempty"`
 
+	// NodeName is the Kubernetes node name the pod is scheduled on
+	// (spec.nodeName). Used in Phase 14 to build Workload → Node (RUNS_ON)
+	// edges in the asset graph.
+	NodeName string `json:"node_name,omitempty"`
+
 	// Containers holds per-container security and resource data.
 	Containers []KubernetesContainerData `json:"containers,omitempty"`
 }

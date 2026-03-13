@@ -17,11 +17,14 @@ var cloudResourceSet = map[NodeType]struct{}{
 }
 
 // traversalEdgeSet is the set of EdgeTypes followed during blast-radius BFS.
-// Only RUNS_AS, ASSUMES_ROLE, and CAN_ACCESS are crossed; structural edges
-// such as EXPOSES, ROUTES_TO, and CONTAINS are intentionally excluded so that
-// traversal stays in the attack-relevant identity path.
+// Only identity/access edges are crossed; structural edges (EXPOSES, ROUTES_TO,
+// CONTAINS) are intentionally excluded so traversal stays on the attack path.
+//
+// Phase 14 adds RUNS_ON so the instance-profile path
+// (Workload → Node → IAMRole → Cloud Resource) is included in blast radius.
 var traversalEdgeSet = map[EdgeType]struct{}{
 	EdgeTypeRunsAs:      {},
+	EdgeTypeRunsOn:      {},
 	EdgeTypeAssumesRole: {},
 	EdgeTypeCanAccess:   {},
 }

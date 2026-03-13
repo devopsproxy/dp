@@ -45,6 +45,25 @@ func BuildAssetGraph(cluster *models.KubernetesClusterData) (*Graph, error) {
 		})
 	}
 
+	// ── Kubernetes Node nodes (Phase 14) ──────────────────────────────────────
+	// One graph node per Kubernetes worker node. ProviderID is stored in
+	// Metadata so callers can later resolve the EC2 instance ID.
+	for i := range cluster.Nodes {
+		n := &cluster.Nodes[i]
+		if n.Name == "" {
+			continue
+		}
+		nodeID := sanitizeID("Node_" + n.Name)
+		g.AddNode(&Node{
+			ID:   nodeID,
+			Type: NodeTypeNode,
+			Name: n.Name,
+			Metadata: map[string]string{
+				"provider_id": n.ProviderID,
+			},
+		})
+	}
+
 	// ── ServiceAccount index: "namespace/name" → *KubernetesServiceAccountData
 	saIndex := make(map[string]*models.KubernetesServiceAccountData, len(cluster.ServiceAccounts))
 	for i := range cluster.ServiceAccounts {
@@ -80,6 +99,14 @@ func BuildAssetGraph(cluster *models.KubernetesClusterData) (*Graph, error) {
 			// Namespace CONTAINS Workload.
 			nsID := sanitizeID("Namespace_" + pod.Namespace)
 			g.AddEdge(nsID, wID, EdgeTypeContains)
+		}
+
+		// Workload RUNS_ON Node (Phase 14 — instance-profile path).
+		// Multiple pods of the same workload may run on different nodes;
+		// AddEdge deduplicates identical (from, to, type) triples.
+		if pod.NodeName != "" {
+			nodeID := sanitizeID("Node_" + pod.NodeName)
+			g.AddEdge(wID, nodeID, EdgeTypeRunsOn)
 		}
 
 		// ServiceAccount binding: Workload → ServiceAccount.
@@ -207,6 +234,46 @@ func EnrichWithCloudAccess(g *Graph, roleAccess map[string][]models.RoleCloudAcc
 
 			g.AddEdge(roleID, nodeID, EdgeTypeCanAccess)
 		}
+	}
+}
+
+// ── Node IAM role enrichment (Phase 14) ──────────────────────────────────────
+
+// EnrichWithNodeRoles extends an existing Graph by adding IAMRole nodes for
+// AWS instance profile roles and ASSUMES_ROLE edges from the corresponding
+// Node nodes to those IAMRole nodes.
+//
+// nodeRoles maps Kubernetes node names (e.g. "ip-10-0-1-1.ec2.internal") to
+// the IAM role ARN attached to the node's EC2 instance profile
+// (e.g. "arn:aws:iam::123456789012:role/eks-node-role").
+//
+// If the Node graph node for a given Kubernetes node name does not exist in g,
+// that entry is silently skipped — enrichment never creates dangling edges.
+// Duplicate IAMRole nodes and edges are deduplicated by the graph itself.
+func EnrichWithNodeRoles(g *Graph, nodeRoles map[string]string) {
+	for nodeName, roleARN := range nodeRoles {
+		if roleARN == "" {
+			continue
+		}
+		nodeID := sanitizeID("Node_" + nodeName)
+		if g.GetNode(nodeID) == nil {
+			continue
+		}
+
+		roleName := extractRoleName(roleARN)
+		roleID := sanitizeID("IAMRole_" + roleName)
+
+		// Add IAMRole node (first-write-wins when already present via IRSA).
+		g.AddNode(&Node{
+			ID:   roleID,
+			Type: NodeTypeIAMRole,
+			Name: roleName,
+			Metadata: map[string]string{
+				"arn": roleARN,
+			},
+		})
+
+		g.AddEdge(nodeID, roleID, EdgeTypeAssumesRole)
 	}
 }
 

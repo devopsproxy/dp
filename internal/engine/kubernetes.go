@@ -40,16 +40,28 @@ type IAMAccessResolver interface {
 	ResolveRoleResourceAccess(ctx context.Context, roleArn string) ([]models.RoleCloudAccess, error)
 }
 
+// NodeIAMRoleResolver resolves the AWS IAM instance-profile role for a
+// Kubernetes worker node given its cloud ProviderID
+// (e.g. "aws:///us-east-1a/i-0123456789abcdef0").
+//
+// The interface is defined here (engine layer) for dependency inversion —
+// the engine never imports the AWS EC2 provider package directly.
+// Nil disables instance-profile enrichment on the asset graph.
+type NodeIAMRoleResolver interface {
+	ResolveNodeIAMRole(ctx context.Context, providerID string) (string, error)
+}
+
 // KubernetesEngine orchestrates a Kubernetes governance audit.
 // It supports provider-aware rule evaluation: core rules always run;
 // EKS-specific rules run only when the cluster is detected as EKS.
 type KubernetesEngine struct {
-	provider     kube.KubeClientProvider
-	coreRegistry rules.RuleRegistry // always evaluated
-	eksRegistry  rules.RuleRegistry // evaluated only for EKS clusters; may be nil
-	eksCollector EKSDataCollector   // optional; nil disables EKS data collection
-	iamResolver  IAMAccessResolver  // optional; nil disables cloud reachability enrichment
-	policy       *policy.PolicyConfig
+	provider         kube.KubeClientProvider
+	coreRegistry     rules.RuleRegistry // always evaluated
+	eksRegistry      rules.RuleRegistry // evaluated only for EKS clusters; may be nil
+	eksCollector     EKSDataCollector   // optional; nil disables EKS data collection
+	iamResolver      IAMAccessResolver  // optional; nil disables cloud reachability enrichment
+	nodeRoleResolver NodeIAMRoleResolver // optional; nil disables instance-profile enrichment
+	policy           *policy.PolicyConfig
 
 	// lastCtx holds ancillary data from the most recent RunAudit call.
 	// Callers access it via AssetGraph() after RunAudit returns.
@@ -69,6 +81,16 @@ func (e *KubernetesEngine) AssetGraph() *graph.Graph {
 // Returns the engine to allow fluent chaining.
 func (e *KubernetesEngine) WithIAMResolver(resolver IAMAccessResolver) *KubernetesEngine {
 	e.iamResolver = resolver
+	return e
+}
+
+// WithNodeRoleResolver injects an optional node IAM role resolver into the engine.
+// When set, RunAudit will resolve the EC2 instance-profile role for each cluster
+// node and enrich the asset graph with Node → IAMRole (ASSUMES_ROLE) edges,
+// enabling blast-radius traversal via the Workload → Node → IAMRole path.
+// Returns the engine to allow fluent chaining.
+func (e *KubernetesEngine) WithNodeRoleResolver(resolver NodeIAMRoleResolver) *KubernetesEngine {
+	e.nodeRoleResolver = resolver
 	return e
 }
 
@@ -192,6 +214,27 @@ func (e *KubernetesEngine) RunAudit(ctx context.Context, opts KubernetesAuditOpt
 		}
 		if len(roleAccess) > 0 {
 			graph.EnrichWithCloudAccess(e.lastCtx.AssetGraph, roleAccess)
+		}
+	}
+
+	// ── Node IAM Role Enrichment (Phase 14) ──────────────────────────────────
+	// When a NodeIAMRoleResolver is configured, resolve the EC2 instance-profile
+	// role for each cluster node and enrich the asset graph with
+	// Node → IAMRole (ASSUMES_ROLE) edges.
+	// Non-fatal: resolution failures per node are silently ignored.
+	if e.lastCtx.AssetGraph != nil && e.nodeRoleResolver != nil {
+		nodeRoles := make(map[string]string)
+		for _, n := range k8sData.Nodes {
+			if n.ProviderID == "" {
+				continue
+			}
+			roleARN, resolveErr := e.nodeRoleResolver.ResolveNodeIAMRole(ctx, n.ProviderID)
+			if resolveErr == nil && roleARN != "" {
+				nodeRoles[n.Name] = roleARN
+			}
+		}
+		if len(nodeRoles) > 0 {
+			graph.EnrichWithNodeRoles(e.lastCtx.AssetGraph, nodeRoles)
 		}
 	}
 
@@ -457,6 +500,10 @@ func annotateStructuralTopology(findings []models.Finding, k8sData *models.Kuber
 				// Phase 10.4: workload owner for graph node collapsing.
 				f.Metadata["workload_kind"] = pod.WorkloadKind
 				f.Metadata["workload_name"] = pod.WorkloadName
+				// Phase 14: node name for instance-profile identity path.
+				if pod.NodeName != "" {
+					f.Metadata["node_name"] = pod.NodeName
+				}
 			}
 		case models.ResourceK8sService:
 			if svc, ok := svcIndex[ns+"/"+f.ResourceID]; ok {
@@ -522,6 +569,7 @@ func convertClusterData(data *kube.ClusterData) *models.KubernetesClusterData {
 			Labels:             podLabels,
 			WorkloadKind:       pod.WorkloadKind,
 			WorkloadName:       pod.WorkloadName,
+			NodeName:           pod.NodeName,
 		}
 		for _, c := range pod.Containers {
 			var addedCaps []string

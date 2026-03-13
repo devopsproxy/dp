@@ -162,6 +162,7 @@ func collectPods(ctx context.Context, clientset k8sclient.Interface) ([]PodInfo,
 			Labels:             podLabels,
 			WorkloadKind:       workloadKind,
 			WorkloadName:       workloadName,
+			NodeName:           p.Spec.NodeName,
 		}
 		for _, c := range p.Spec.Containers {
 			privileged := c.SecurityContext != nil &&
