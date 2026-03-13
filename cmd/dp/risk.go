@@ -24,6 +24,7 @@ func newRiskCmd() *cobra.Command {
 		Short: "Risk prioritization commands",
 	}
 	cmd.AddCommand(newRiskTopCmd())
+	cmd.AddCommand(newRiskExplainCmd())
 	return cmd
 }
 
@@ -113,4 +114,66 @@ func renderRiskTop(w io.Writer, findings []risk.RiskFinding) {
 		fmt.Fprintf(w, "   Explanation:\n   %s\n", f.Explanation)
 		fmt.Fprintln(w)
 	}
+}
+
+// newRiskExplainCmd returns the `dp kubernetes risk explain` command.
+// It runs the Kubernetes audit pipeline, builds the asset graph, calls
+// AnalyzeTopRisks, and prints a structured plain-English explanation of the
+// highest-scored finding. No external API calls are made.
+func newRiskExplainCmd() *cobra.Command {
+	var contextName string
+
+	cmd := &cobra.Command{
+		Use:          "explain",
+		Short:        "Print a structured security explanation for the top-scored attack path risk",
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runRiskExplain(cmd.Context(), contextName, os.Stdout)
+		},
+	}
+
+	cmd.Flags().StringVar(&contextName, "context", "",
+		"Kubeconfig context to use (default: current context)")
+
+	return cmd
+}
+
+// runRiskExplain is the testable core of `dp kubernetes risk explain`.
+func runRiskExplain(ctx context.Context, contextName string, w io.Writer) error {
+	provider := kube.NewDefaultKubeClientProvider()
+
+	coreRegistry := rules.NewDefaultRuleRegistry()
+	for _, r := range k8scorepack.New() {
+		coreRegistry.Register(r)
+	}
+	eksRegistry := rules.NewDefaultRuleRegistry()
+	for _, r := range k8sekpack.New() {
+		eksRegistry.Register(r)
+	}
+
+	eng := engine.NewKubernetesEngineWithEKS(
+		provider,
+		coreRegistry,
+		eksRegistry,
+		awseks.NewDefaultEKSCollector(),
+		nil,
+	)
+
+	opts := engine.KubernetesAuditOptions{
+		ContextName: contextName,
+	}
+
+	if _, err := eng.RunAudit(ctx, opts); err != nil {
+		return fmt.Errorf("kubernetes audit failed: %w", err)
+	}
+
+	g := eng.AssetGraph()
+	findings := risk.AnalyzeTopRisks(g)
+	if len(findings) == 0 {
+		fmt.Fprintln(w, "No attack path risks detected.")
+		return nil
+	}
+
+	fmt.Fprint(w, risk.ExplainRisk(findings[0]))
+	return nil
 }

@@ -741,6 +741,69 @@ Severity thresholds: ≥ 100 → CRITICAL · ≥ 70 → HIGH · ≥ 40 → MEDIU
 
 ---
 
+## AI Security Explanation Engine (Phase 20)
+
+**`dp kubernetes risk explain`** — `internal/risk/explainer.go`
+
+`ExplainRisk(r RiskFinding) string` converts a `RiskFinding` into a
+structured, four-section plain-English security explanation. It is
+deterministic — no external API calls, no LLM, works offline.
+
+### Command
+
+```
+dp kubernetes risk explain [--context <kubeconfig-context>]
+```
+
+Runs the same Kubernetes audit pipeline as `dp kubernetes risk top` to build
+the asset graph, calls `AnalyzeTopRisks`, and prints the explanation of the
+highest-scored finding.
+
+### Output format
+
+```
+AI SECURITY EXPLANATION
+
+Severity: CRITICAL  Score: 130
+
+Attack Path
+Internet → api-lb → platform-api → app-role → customer-data
+
+What This Means
+The workload "platform-api" is exposed to the internet through a LoadBalancer.
+...
+
+Why This Is Dangerous
+This is a complete data-exfiltration path. ...
+
+Recommended Actions
+• Restrict the service from public internet exposure or add authentication
+• Use IRSA to scope IAM credentials to individual workloads, not the whole node
+• Apply least-privilege to "app-role" — restrict to the minimum required actions
+• Enable server-side access logging on "customer-data" to detect exfiltration
+• Run containers with a non-root user and drop all Linux capabilities
+```
+
+### Pattern detection
+
+The explainer infers the topology pattern from two fields already present on
+`RiskFinding` — no additional data collection required:
+
+| Pattern | Detection condition | Score |
+|---------|-------------------|-------|
+| P3: Internet → LB → Workload → IAMRole → CloudResource | `score >= 100` | 130 |
+| P2: Internet → LB → Workload → IAMRole | `score == 80 && path[0]=="Internet"` | 80 |
+| P1: Internet → LB → Workload → Node | `score == 70 && path[0]=="Internet"` | 70 |
+| P4: Workload → Node → IAMRole (no Internet) | default | 70 |
+
+### Design constraints
+
+- Pure string-building in `strings.Builder` — zero allocations beyond the builder
+- `safeIndex` prevents panics on short or unexpected paths
+- Offline-first: no `internal/llm` dependency; function is pure
+
+---
+
 ## Toxic Combination Engine
 
 **Phase 19** — `internal/analysis/toxic.go`
