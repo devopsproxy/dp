@@ -182,72 +182,29 @@ func buildRiskEngine(contextName string) (*engine.KubernetesEngine, error) {
 	), nil
 }
 
-// encodeRiskJSON writes findings as an indented JSON array to w.
-// JSON output contains only the payload — no banners or headers.
+// riskJSON is the JSON-specific projection of a RiskFinding.
+// It omits the "title" field (redundant: identical information is in "path")
+// to keep the API surface clean for automation consumers.
+type riskJSON struct {
+	Severity    string   `json:"severity"`
+	Score       int      `json:"score"`
+	Path        []string `json:"path"`
+	Explanation string   `json:"explanation"`
+}
+
+// encodeRiskJSON converts findings to riskJSON and writes an indented JSON
+// array to w. JSON output contains only the payload — no banners or headers.
 func encodeRiskJSON(w io.Writer, findings []risk.RiskFinding) error {
+	out := make([]riskJSON, len(findings))
+	for i, f := range findings {
+		out[i] = riskJSON{
+			Severity:    f.Severity,
+			Score:       f.Score,
+			Path:        f.Path,
+			Explanation: f.Explanation,
+		}
+	}
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
-	return enc.Encode(findings)
-}
-
-// newRiskExplainCmd returns the `dp kubernetes risk explain` command.
-// It runs the Kubernetes audit pipeline, builds the asset graph, calls
-// AnalyzeTopRisks, and prints a structured plain-English explanation of the
-// highest-scored finding. No external API calls are made.
-func newRiskExplainCmd() *cobra.Command {
-	var contextName string
-
-	cmd := &cobra.Command{
-		Use:          "explain",
-		Short:        "Print a structured security explanation for the top-scored attack path risk",
-		SilenceUsage: true,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runRiskExplain(cmd.Context(), contextName, os.Stdout)
-		},
-	}
-
-	cmd.Flags().StringVar(&contextName, "context", "",
-		"Kubeconfig context to use (default: current context)")
-
-	return cmd
-}
-
-// runRiskExplain is the testable core of `dp kubernetes risk explain`.
-func runRiskExplain(ctx context.Context, contextName string, w io.Writer) error {
-	provider := kube.NewDefaultKubeClientProvider()
-
-	coreRegistry := rules.NewDefaultRuleRegistry()
-	for _, r := range k8scorepack.New() {
-		coreRegistry.Register(r)
-	}
-	eksRegistry := rules.NewDefaultRuleRegistry()
-	for _, r := range k8sekpack.New() {
-		eksRegistry.Register(r)
-	}
-
-	eng := engine.NewKubernetesEngineWithEKS(
-		provider,
-		coreRegistry,
-		eksRegistry,
-		awseks.NewDefaultEKSCollector(),
-		nil,
-	)
-
-	opts := engine.KubernetesAuditOptions{
-		ContextName: contextName,
-	}
-
-	if _, err := eng.RunAudit(ctx, opts); err != nil {
-		return fmt.Errorf("kubernetes audit failed: %w", err)
-	}
-
-	g := eng.AssetGraph()
-	findings := risk.AnalyzeTopRisks(g)
-	if len(findings) == 0 {
-		fmt.Fprintln(w, "No attack path risks detected.")
-		return nil
-	}
-
-	fmt.Fprint(w, risk.ExplainRisk(findings[0]))
-	return nil
+	return enc.Encode(out)
 }
