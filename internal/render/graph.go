@@ -188,6 +188,40 @@ func BuildAttackGraph(summary models.AuditSummary, findings []models.Finding, as
 			}
 		}
 
+		// ── Node nodes: instance-profile identity path (Phase 14) ───────────
+		// When the asset graph is available, follow RUNS_ON edges from each
+		// workload node to Node nodes, then ASSUMES_ROLE from Node to IAMRole.
+		// This surfaces the Workload → Node → IAMRole chain for clusters that
+		// do not use IRSA and rely on the EC2 instance profile instead.
+		if assetGraph != nil {
+			for _, f := range podFindings {
+				wid, _, _ := workloadNodeInfo(f)
+				for _, e := range assetGraph.EdgesFrom(wid) {
+					if e.Type != graph.EdgeTypeRunsOn {
+						continue
+					}
+					nodeN := assetGraph.GetNode(e.To)
+					if nodeN == nil {
+						continue
+					}
+					addNode(e.To, nodeN.Name+" (Node)", "Node")
+					addEdge(wid, e.To)
+					// Follow ASSUMES_ROLE from the k8s Node to its IAMRole.
+					for _, re := range assetGraph.EdgesFrom(e.To) {
+						if re.Type != graph.EdgeTypeAssumesRole {
+							continue
+						}
+						roleNode := assetGraph.GetNode(re.To)
+						if roleNode == nil {
+							continue
+						}
+						addNode(re.To, roleNode.Name+" (AWS IAM)", "IAMRole")
+						addEdge(e.To, re.To)
+					}
+				}
+			}
+		}
+
 		// ── ServiceAccount nodes: connect from workload that declares this SA ──
 		for _, f := range saFindings {
 			nid := sanitizeNodeID("ServiceAccount_" + f.ResourceID)

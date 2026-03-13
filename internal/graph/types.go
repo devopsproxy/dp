@@ -54,6 +54,11 @@ const (
 	// NodeTypeKMSKey is an AWS KMS key reachable via an IAM role
 	// (Phase 12 cloud reachability).
 	NodeTypeKMSKey NodeType = "KMSKey"
+
+	// NodeTypeNode is a Kubernetes worker node (EC2 instance). Added in Phase 14
+	// to model instance-profile-based cloud access paths where pods reach AWS
+	// through the node's IAM role rather than through IRSA.
+	NodeTypeNode NodeType = "Node"
 )
 
 // EdgeType describes the relationship direction between two Nodes.
@@ -89,6 +94,11 @@ const (
 	// policies grant access to the target AWS resource (S3, Secrets Manager,
 	// DynamoDB, KMS). Added by graph.EnrichWithCloudAccess (Phase 12).
 	EdgeTypeCanAccess EdgeType = "CAN_ACCESS"
+
+	// EdgeTypeRunsOn: Workload → Node — pods in this workload are scheduled on
+	// the Kubernetes worker node. Added in Phase 14 to support instance-profile
+	// attack paths (Workload → Node → IAMRole → Cloud Resource).
+	EdgeTypeRunsOn EdgeType = "RUNS_ON"
 )
 
 // Node represents a security-relevant infrastructure entity in the asset graph.

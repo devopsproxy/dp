@@ -218,6 +218,22 @@ When `assetGraph` is non-nil, `BuildAttackGraph` uses `HasEdge` / `EdgesFrom` fo
 
 The `internal/graph` package exposes read-only traversal operations that consume the asset graph without modifying rule findings, scores, or any engine state.
 
+### Identity paths
+
+`dp` models two distinct paths by which a workload can reach AWS cloud resources:
+
+| Path | Edges | Used when |
+|------|-------|-----------|
+| **IRSA** (per-pod identity) | Workload → ServiceAccount → IAMRole → Cloud Resource | SA has `eks.amazonaws.com/role-arn` annotation |
+| **Node instance profile** | Workload → Node → IAMRole → Cloud Resource | Pods inherit the EC2 node's IAM role (no IRSA configured) |
+
+Both paths are modelled in the asset graph and traversed by `ComputeBlastRadius`.
+
+- `BuildAssetGraph` creates `NodeTypeNode` nodes from `KubernetesClusterData.Nodes` and adds `RUNS_ON` edges (Workload → Node) based on `pod.NodeName`.
+- `EnrichWithNodeRoles(g, nodeRoles)` adds `IAMRole` nodes and `ASSUMES_ROLE` edges (Node → IAMRole) using a map of node name → role ARN resolved by `NodeIAMRoleResolver`.
+- The concrete resolver (`internal/providers/aws/ec2.ResolveNodeIAMRole`) calls `EC2 DescribeInstances` to extract the instance profile ARN and converts it to a role ARN.
+- `NodeIAMRoleResolver` is an interface in the engine layer — the engine never imports the EC2 provider directly; the CLI or test injects the concrete implementation via `WithNodeRoleResolver`.
+
 ### Blast Radius (`blast.go`)
 
 `ComputeBlastRadius(g *Graph, startNodeID string) (*BlastResult, error)` performs a BFS from a starting node, following only the attack-relevant edge subset:
@@ -225,7 +241,8 @@ The `internal/graph` package exposes read-only traversal operations that consume
 | Edge type | Meaning |
 |-----------|---------|
 | `RUNS_AS` | Workload is bound to a ServiceAccount |
-| `ASSUMES_ROLE` | ServiceAccount has IRSA annotation for an IAM role |
+| `RUNS_ON` | Workload is scheduled on a Kubernetes Node (Phase 14) |
+| `ASSUMES_ROLE` | ServiceAccount or Node has an IAM role (IRSA or instance profile) |
 | `CAN_ACCESS` | IAM role's policies grant access to a cloud resource |
 
 All other edge types (`EXPOSES`, `ROUTES_TO`, `CONTAINS`) are ignored — the traversal stays on the identity/access path, not the network path.
