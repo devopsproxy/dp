@@ -3,7 +3,7 @@ package engine
 import (
 	"sort"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
+	"github.com/devopsproxy/dp/internal/models"
 )
 
 // ruleIDsForFinding returns all rule IDs associated with a finding.
@@ -510,9 +510,9 @@ func buildAttackPaths(findings []models.Finding) []models.AttackPath {
 			fids = appendClusterIDs(seen, fids, "EKS_OIDC_PROVIDER_NOT_ASSOCIATED")
 
 			paths = append(paths, models.AttackPath{
-				Score:      92,
-				Layers:     []string{"Service Account Usage", "Token Exposure", "Identity Federation Missing"},
-				FindingIDs: fids,
+				Score:       92,
+				Layers:      []string{"Service Account Usage", "Token Exposure", "Identity Federation Missing"},
+				FindingIDs:  fids,
 				Description: "Service account token misuse combined with missing IRSA and OIDC.",
 			})
 		}
@@ -531,9 +531,9 @@ func buildAttackPaths(findings []models.Finding) []models.AttackPath {
 			"K8S_CLUSTER_SINGLE_NODE",
 		)
 		paths = append(paths, models.AttackPath{
-			Score:      90,
-			Layers:     []string{"Encryption Disabled", "Logging Disabled", "No Redundancy"},
-			FindingIDs: fids,
+			Score:       90,
+			Layers:      []string{"Encryption Disabled", "Logging Disabled", "No Redundancy"},
+			FindingIDs:  fids,
 			Description: "Cluster governance protections disabled with no redundancy.",
 		})
 	}
@@ -605,9 +605,9 @@ func buildAttackPaths(findings []models.Finding) []models.AttackPath {
 			fids = appendClusterIDs(seen, fids, "EKS_IAM_ROLE_WILDCARD")
 
 			paths = append(paths, models.AttackPath{
-				Score:      96,
-				Layers:     []string{"Network Exposure", "Workload Compromise", "Cloud IAM Escalation"},
-				FindingIDs: fids,
+				Score:       96,
+				Layers:      []string{"Network Exposure", "Workload Compromise", "Cloud IAM Escalation"},
+				FindingIDs:  fids,
 				Description: "Externally reachable workload can assume over-permissive cloud IAM role (cross-plane privilege escalation).",
 			})
 		}

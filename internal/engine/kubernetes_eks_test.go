@@ -10,11 +10,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
-	kube "github.com/pankaj-dahiya-devops/Devops-proxy/internal/providers/kubernetes"
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/rules"
-	k8scorepack "github.com/pankaj-dahiya-devops/Devops-proxy/internal/rulepacks/kubernetes_core"
-	k8sekpack "github.com/pankaj-dahiya-devops/Devops-proxy/internal/rulepacks/kubernetes_eks"
+	"github.com/devopsproxy/dp/internal/models"
+	kube "github.com/devopsproxy/dp/internal/providers/kubernetes"
+	k8scorepack "github.com/devopsproxy/dp/internal/rulepacks/kubernetes_core"
+	k8sekpack "github.com/devopsproxy/dp/internal/rulepacks/kubernetes_eks"
+	"github.com/devopsproxy/dp/internal/rules"
 )
 
 // fakeEKSCollector implements EKSDataCollector for tests.
@@ -33,9 +33,9 @@ func eksNode(name, az string) *corev1.Node {
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
 			Labels: map[string]string{
-				"eks.amazonaws.com/nodegroup":  "workers",
+				"eks.amazonaws.com/nodegroup":    "workers",
 				"eks.amazonaws.com/cluster-name": "test-cluster",
-				"topology.kubernetes.io/region": regionFromAZ(az),
+				"topology.kubernetes.io/region":  regionFromAZ(az),
 			},
 		},
 		Spec: corev1.NodeSpec{
@@ -305,10 +305,10 @@ func TestKubernetesEngine_EKS_RulesFire(t *testing.T) {
 	eksData := &models.KubernetesEKSData{
 		ClusterName:          "bad-cluster",
 		Region:               "us-east-1",
-		EndpointPublicAccess: true,        // fires EKS_PUBLIC_ENDPOINT_ENABLED
-		LoggingEnabled:       false,       // kept for compat; new rule uses LoggingTypes
-		LoggingTypes:         nil,         // fires EKS_CONTROL_PLANE_LOGGING_DISABLED
-		EncryptionEnabled:    false,       // fires EKS_ENCRYPTION_DISABLED
+		EndpointPublicAccess: true,  // fires EKS_PUBLIC_ENDPOINT_ENABLED
+		LoggingEnabled:       false, // kept for compat; new rule uses LoggingTypes
+		LoggingTypes:         nil,   // fires EKS_CONTROL_PLANE_LOGGING_DISABLED
+		EncryptionEnabled:    false, // fires EKS_ENCRYPTION_DISABLED
 		OIDCIssuer:           "https://oidc.eks.us-east-1.amazonaws.com/id/X",
 	}
 	fakeClient := fake.NewSimpleClientset(
@@ -456,7 +456,6 @@ func TestKubernetesEngine_NonEKS_EKSRulesNotEvaluated(t *testing.T) {
 }
 
 // ── Phase 5A engine integration tests ────────────────────────────────────────
-
 
 // TestKubernetesEngine_EKS_EncryptionDisabled_IsCritical verifies that
 // EKS_ENCRYPTION_DISABLED produces a CRITICAL severity finding.

@@ -6,7 +6,7 @@ package sensitivity
 import (
 	"strings"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
+	"github.com/devopsproxy/dp/internal/models"
 )
 
 // s3HighKeywords are substrings in an S3 bucket name that indicate the bucket

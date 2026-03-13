@@ -6,7 +6,7 @@ import (
 
 	iamsvc "github.com/aws/aws-sdk-go-v2/service/iam"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
+	"github.com/devopsproxy/dp/internal/models"
 )
 
 // collectRootAccountInfo retrieves the IAM account summary and checks whether

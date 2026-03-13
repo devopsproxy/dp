@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
+	"github.com/devopsproxy/dp/internal/models"
 )
 
 // FindPathByScore returns a pointer to the first AttackPath in paths whose Score

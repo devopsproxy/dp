@@ -12,8 +12,8 @@ package engine
 import (
 	"sort"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/graph"
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/graph/traversal"
+	"github.com/devopsproxy/dp/internal/graph"
+	"github.com/devopsproxy/dp/internal/graph/traversal"
 )
 
 // GraphAttackPath represents a single attack path discovered through graph

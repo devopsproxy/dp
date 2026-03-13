@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
+	"github.com/devopsproxy/dp/internal/models"
 )
 
 const (
@@ -18,8 +18,10 @@ const (
 // most one finding regardless of how many open rules it contains.
 type AWSSecurityGroupOpenSSHRule struct{}
 
-func (r AWSSecurityGroupOpenSSHRule) ID() string   { return "SG_OPEN_SSH" }
-func (r AWSSecurityGroupOpenSSHRule) Name() string { return "Security Group With Open Remote Admin Access" }
+func (r AWSSecurityGroupOpenSSHRule) ID() string { return "SG_OPEN_SSH" }
+func (r AWSSecurityGroupOpenSSHRule) Name() string {
+	return "Security Group With Open Remote Admin Access"
+}
 
 // Evaluate returns one HIGH finding per security group that exposes SSH (22)
 // or RDP (3389) to the internet. Duplicate matches within the same group are

@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/policy"
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/providers/aws/common"
-	awscost "github.com/pankaj-dahiya-devops/Devops-proxy/internal/providers/aws/cost"
-	awssecurity "github.com/pankaj-dahiya-devops/Devops-proxy/internal/providers/aws/security"
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/rules"
+	"github.com/devopsproxy/dp/internal/models"
+	"github.com/devopsproxy/dp/internal/policy"
+	"github.com/devopsproxy/dp/internal/providers/aws/common"
+	awscost "github.com/devopsproxy/dp/internal/providers/aws/cost"
+	awssecurity "github.com/devopsproxy/dp/internal/providers/aws/security"
+	"github.com/devopsproxy/dp/internal/rules"
 )
 
 // AWSDataProtectionEngine implements Engine for AuditTypeDataProtection.

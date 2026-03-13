@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
+	"github.com/devopsproxy/dp/internal/models"
 )
 
 // requiredLoggingTypes are the EKS control-plane log categories that must all
@@ -62,9 +62,9 @@ func (r EKSControlPlaneLoggingDisabledRule) Evaluate(ctx RuleContext) []models.F
 						"for security review and compliance.",
 					DetectedAt: time.Now().UTC(),
 					Metadata: map[string]any{
-						"cluster_name":   eks.ClusterName,
-						"region":         eks.Region,
-						"logging_types":  eks.LoggingTypes,
+						"cluster_name":  eks.ClusterName,
+						"region":        eks.Region,
+						"logging_types": eks.LoggingTypes,
 					},
 				},
 			}

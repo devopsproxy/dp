@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
+	"github.com/devopsproxy/dp/internal/models"
 )
 
 // newFinding constructs a minimal Finding for use in engine tests.
@@ -237,11 +237,11 @@ func TestSortFindings_DeterministicAcrossInputOrder(t *testing.T) {
 	// sortFindings must produce the same canonical sequence regardless of the
 	// order in which findings were appended to the shared slice.
 	base := []models.Finding{
-		newFinding("i-low",      "us-east-1", "R1", models.SeverityLow,      5.0),
+		newFinding("i-low", "us-east-1", "R1", models.SeverityLow, 5.0),
 		newFinding("i-critical", "us-east-1", "R2", models.SeverityCritical, 20.0),
-		newFinding("i-high-a",   "us-east-1", "R3", models.SeverityHigh,     30.0),
-		newFinding("i-medium",   "us-east-1", "R4", models.SeverityMedium,   10.0),
-		newFinding("i-high-b",   "us-east-1", "R5", models.SeverityHigh,     50.0),
+		newFinding("i-high-a", "us-east-1", "R3", models.SeverityHigh, 30.0),
+		newFinding("i-medium", "us-east-1", "R4", models.SeverityMedium, 10.0),
+		newFinding("i-high-b", "us-east-1", "R5", models.SeverityHigh, 50.0),
 	}
 	// Expected: CRITICAL first, then HIGH by savings desc, then MEDIUM, then LOW.
 	wantOrder := []string{"i-critical", "i-high-b", "i-high-a", "i-medium", "i-low"}

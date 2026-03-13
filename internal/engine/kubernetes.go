@@ -6,12 +6,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/graph"
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/policy"
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/providers/aws/sensitivity"
-	kube "github.com/pankaj-dahiya-devops/Devops-proxy/internal/providers/kubernetes"
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/rules"
+	"github.com/devopsproxy/dp/internal/graph"
+	"github.com/devopsproxy/dp/internal/models"
+	"github.com/devopsproxy/dp/internal/policy"
+	"github.com/devopsproxy/dp/internal/providers/aws/sensitivity"
+	kube "github.com/devopsproxy/dp/internal/providers/kubernetes"
+	"github.com/devopsproxy/dp/internal/rules"
 )
 
 // EngineContext holds ancillary data produced during a single RunAudit call.
@@ -57,10 +57,10 @@ type NodeIAMRoleResolver interface {
 // EKS-specific rules run only when the cluster is detected as EKS.
 type KubernetesEngine struct {
 	provider         kube.KubeClientProvider
-	coreRegistry     rules.RuleRegistry // always evaluated
-	eksRegistry      rules.RuleRegistry // evaluated only for EKS clusters; may be nil
-	eksCollector     EKSDataCollector   // optional; nil disables EKS data collection
-	iamResolver      IAMAccessResolver  // optional; nil disables cloud reachability enrichment
+	coreRegistry     rules.RuleRegistry  // always evaluated
+	eksRegistry      rules.RuleRegistry  // evaluated only for EKS clusters; may be nil
+	eksCollector     EKSDataCollector    // optional; nil disables EKS data collection
+	iamResolver      IAMAccessResolver   // optional; nil disables cloud reachability enrichment
 	nodeRoleResolver NodeIAMRoleResolver // optional; nil disables instance-profile enrichment
 	policy           *policy.PolicyConfig
 

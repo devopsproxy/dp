@@ -5,7 +5,7 @@ import (
 
 	configsvc "github.com/aws/aws-sdk-go-v2/service/configservice"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
+	"github.com/devopsproxy/dp/internal/models"
 )
 
 // collectConfigStatus checks whether AWS Config has an active configuration

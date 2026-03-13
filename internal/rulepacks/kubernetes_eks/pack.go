@@ -3,7 +3,7 @@
 // and require EKS control-plane data collected via the AWS EKS API.
 package kubernetes_eks
 
-import "github.com/pankaj-dahiya-devops/Devops-proxy/internal/rules"
+import "github.com/devopsproxy/dp/internal/rules"
 
 // New returns the Phase 5A + 5B EKS-specific governance rules ordered by severity:
 // CRITICAL:
@@ -17,11 +17,11 @@ import "github.com/pankaj-dahiya-devops/Devops-proxy/internal/rules"
 //   - EKS_SERVICEACCOUNT_NO_IRSA       — ServiceAccount missing eks.amazonaws.com/role-arn
 func New() []rules.Rule {
 	return []rules.Rule{
-		rules.EKSEncryptionDisabledRule{},             // CRITICAL (5A)
-		rules.EKSNodeRoleOverpermissiveRule{},         // CRITICAL (5B)
-		rules.EKSPublicEndpointRule{},                 // HIGH (5A)
-		rules.EKSControlPlaneLoggingDisabledRule{},    // HIGH (5A)
-		rules.EKSOIDCProviderNotAssociatedRule{},      // HIGH (5B)
-		rules.EKSServiceAccountNoIRSARule{},           // HIGH (5B)
+		rules.EKSEncryptionDisabledRule{},          // CRITICAL (5A)
+		rules.EKSNodeRoleOverpermissiveRule{},      // CRITICAL (5B)
+		rules.EKSPublicEndpointRule{},              // HIGH (5A)
+		rules.EKSControlPlaneLoggingDisabledRule{}, // HIGH (5A)
+		rules.EKSOIDCProviderNotAssociatedRule{},   // HIGH (5B)
+		rules.EKSServiceAccountNoIRSARule{},        // HIGH (5B)
 	}
 }

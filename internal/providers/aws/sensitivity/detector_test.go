@@ -3,15 +3,15 @@ package sensitivity
 import (
 	"testing"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
+	"github.com/devopsproxy/dp/internal/models"
 )
 
 // TestSensitivity_S3BucketDetection verifies that S3 bucket names containing
 // high-risk keywords are classified as HIGH and others as MEDIUM.
 func TestSensitivity_S3BucketDetection(t *testing.T) {
 	cases := []struct {
-		name     string
-		want     models.SensitivityLevel
+		name string
+		want models.SensitivityLevel
 	}{
 		// HIGH: contains a keyword.
 		{"prod-assets", models.SensitivityHigh},

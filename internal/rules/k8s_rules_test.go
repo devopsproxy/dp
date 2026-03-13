@@ -3,8 +3,8 @@ package rules_test
 import (
 	"testing"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/rules"
+	"github.com/devopsproxy/dp/internal/models"
+	"github.com/devopsproxy/dp/internal/rules"
 )
 
 // newK8sCtx is a helper that builds a RuleContext with the given KubernetesClusterData.
@@ -129,7 +129,7 @@ func TestK8SNodeOverallocated_MultiNode_OnlyFiringNodes(t *testing.T) {
 	ctx := newK8sCtx(&models.KubernetesClusterData{
 		ContextName: "prod",
 		Nodes: []models.KubernetesNodeData{
-			{Name: "healthy", CPUCapacityMillis: 4000, AllocatableCPUMillis: 3000},  // 75% → ok
+			{Name: "healthy", CPUCapacityMillis: 4000, AllocatableCPUMillis: 3000},   // 75% → ok
 			{Name: "overloaded", CPUCapacityMillis: 4000, AllocatableCPUMillis: 400}, // 10% → fires
 		},
 	})

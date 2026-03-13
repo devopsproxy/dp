@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/output"
+	"github.com/devopsproxy/dp/internal/models"
+	"github.com/devopsproxy/dp/internal/output"
 )
 
 // ── helpers ───────────────────────────────────────────────────────────────────

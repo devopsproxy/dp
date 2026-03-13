@@ -3,7 +3,7 @@ package engine
 import (
 	"context"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
+	"github.com/devopsproxy/dp/internal/models"
 )
 
 // AuditType identifies the category of audit to run.

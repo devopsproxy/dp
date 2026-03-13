@@ -3,7 +3,7 @@ package rules
 import (
 	"testing"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
+	"github.com/devopsproxy/dp/internal/models"
 )
 
 // eksClusterData builds a minimal KubernetesClusterData with EKSData attached,

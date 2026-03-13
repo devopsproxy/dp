@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
+	"github.com/devopsproxy/dp/internal/models"
 )
 
 // ── EKS_OIDC_PROVIDER_NOT_ASSOCIATED ─────────────────────────────────────────
@@ -160,8 +160,8 @@ func (r EKSNodeRoleOverpermissiveRule) Evaluate(ctx RuleContext) []models.Findin
 				"(EC2, ECR, EKS node read-only). Follow the principle of least privilege.",
 			DetectedAt: time.Now().UTC(),
 			Metadata: map[string]any{
-				"cluster_name":           eks.ClusterName,
-				"region":                 eks.Region,
+				"cluster_name":            eks.ClusterName,
+				"region":                  eks.Region,
 				"overpermissive_policies": eks.NodeRolePolicies,
 			},
 		},

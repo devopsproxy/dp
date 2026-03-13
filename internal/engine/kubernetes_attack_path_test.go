@@ -8,8 +8,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
-	kube "github.com/pankaj-dahiya-devops/Devops-proxy/internal/providers/kubernetes"
+	"github.com/devopsproxy/dp/internal/models"
+	kube "github.com/devopsproxy/dp/internal/providers/kubernetes"
 )
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -478,12 +478,12 @@ func TestBuildAttackPaths_StrictFilter_UnrelatedPrimaryExcluded(t *testing.T) {
 // set, even when additional unrelated findings exist in the same namespace.
 func TestBuildAttackPaths_StrictFilter_Path1_OnlyAllowedRules(t *testing.T) {
 	allowedPath1 := map[string]bool{
-		"K8S_SERVICE_PUBLIC_LOADBALANCER":  true,
-		"K8S_POD_RUN_AS_ROOT":              true,
-		"K8S_POD_CAP_SYS_ADMIN":            true,
-		"EKS_SERVICEACCOUNT_NO_IRSA":       true,
-		"K8S_DEFAULT_SERVICEACCOUNT_USED":  true,
-		"EKS_NODE_ROLE_OVERPERMISSIVE":     true,
+		"K8S_SERVICE_PUBLIC_LOADBALANCER": true,
+		"K8S_POD_RUN_AS_ROOT":             true,
+		"K8S_POD_CAP_SYS_ADMIN":           true,
+		"EKS_SERVICEACCOUNT_NO_IRSA":      true,
+		"K8S_DEFAULT_SERVICEACCOUNT_USED": true,
+		"EKS_NODE_ROLE_OVERPERMISSIVE":    true,
 	}
 	findings := []models.Finding{
 		// PATH 1 qualifying findings.
@@ -540,10 +540,10 @@ func TestBuildAttackPaths_StrictFilter_Path1_OnlyAllowedRules(t *testing.T) {
 // FindingIDs contain only findings with primary rule IDs in PATH 2's allowed set.
 func TestBuildAttackPaths_StrictFilter_Path2_OnlyAllowedRules(t *testing.T) {
 	allowedPath2 := map[string]bool{
-		"K8S_DEFAULT_SERVICEACCOUNT_USED":   true,
+		"K8S_DEFAULT_SERVICEACCOUNT_USED":    true,
 		"K8S_SERVICEACCOUNT_TOKEN_AUTOMOUNT": true,
-		"EKS_SERVICEACCOUNT_NO_IRSA":        true,
-		"EKS_OIDC_PROVIDER_NOT_ASSOCIATED":  true,
+		"EKS_SERVICEACCOUNT_NO_IRSA":         true,
+		"EKS_OIDC_PROVIDER_NOT_ASSOCIATED":   true,
 	}
 	findings := []models.Finding{
 		{ID: "f1", RuleID: "K8S_DEFAULT_SERVICEACCOUNT_USED", Severity: models.SeverityMedium,
@@ -596,7 +596,7 @@ func TestBuildAttackPaths_StrictFilter_Path2_OnlyAllowedRules(t *testing.T) {
 // even when other cluster-scoped findings are present.
 func TestBuildAttackPaths_StrictFilter_Path3_OnlyAllowedRules(t *testing.T) {
 	allowedPath3 := map[string]bool{
-		"EKS_ENCRYPTION_DISABLED":           true,
+		"EKS_ENCRYPTION_DISABLED":            true,
 		"EKS_CONTROL_PLANE_LOGGING_DISABLED": true,
 		"K8S_CLUSTER_SINGLE_NODE":            true,
 	}
@@ -996,8 +996,8 @@ func TestKubernetesEngine_AttackPath3_GovernanceCollapse(t *testing.T) {
 	node := eksNode("node1", "us-east-1a")
 	cs := fake.NewSimpleClientset(node)
 	eng := attackPathEngineFor(cs, "test-ctx", &models.KubernetesEKSData{
-		EncryptionEnabled: false,        // triggers EKS_ENCRYPTION_DISABLED
-		LoggingTypes:      []string{},   // empty = EKS_CONTROL_PLANE_LOGGING_DISABLED
+		EncryptionEnabled: false,      // triggers EKS_ENCRYPTION_DISABLED
+		LoggingTypes:      []string{}, // empty = EKS_CONTROL_PLANE_LOGGING_DISABLED
 		OIDCProviderARN:   "arn:aws:iam::123:oidc-provider/test",
 	})
 
@@ -1165,9 +1165,9 @@ func TestBuildAttackPaths_Path4_MissingLogging_NoPath(t *testing.T) {
 // the required rules.
 func TestBuildAttackPaths_Path4_StrictFiltering(t *testing.T) {
 	allowedPath4 := map[string]bool{
-		"EKS_PUBLIC_ENDPOINT_ENABLED":       true,
-		"EKS_NODE_ROLE_OVERPERMISSIVE":      true,
-		"EKS_IAM_ROLE_WILDCARD":             true,
+		"EKS_PUBLIC_ENDPOINT_ENABLED":        true,
+		"EKS_NODE_ROLE_OVERPERMISSIVE":       true,
+		"EKS_IAM_ROLE_WILDCARD":              true,
 		"EKS_CONTROL_PLANE_LOGGING_DISABLED": true,
 	}
 	findings := []models.Finding{
@@ -1371,8 +1371,8 @@ func TestBuildAttackPaths_Path5_MissingClusterIAM_NoPath(t *testing.T) {
 func TestBuildAttackPaths_Path5_StrictFiltering(t *testing.T) {
 	allowedPath5 := map[string]bool{
 		"K8S_SERVICE_PUBLIC_LOADBALANCER":    true,
-		"K8S_POD_RUN_AS_ROOT":               true,
-		"K8S_POD_CAP_SYS_ADMIN":             true,
+		"K8S_POD_RUN_AS_ROOT":                true,
+		"K8S_POD_CAP_SYS_ADMIN":              true,
 		"EKS_SERVICEACCOUNT_NO_IRSA":         true,
 		"K8S_DEFAULT_SERVICEACCOUNT_USED":    true,
 		"K8S_SERVICEACCOUNT_TOKEN_AUTOMOUNT": true,

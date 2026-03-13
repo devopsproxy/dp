@@ -3,8 +3,8 @@ package awssecurity
 import (
 	"context"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/providers/aws/common"
+	"github.com/devopsproxy/dp/internal/models"
+	"github.com/devopsproxy/dp/internal/providers/aws/common"
 )
 
 // DefaultSecurityCollector is the production SecurityCollector.

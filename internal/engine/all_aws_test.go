@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/policy"
+	"github.com/devopsproxy/dp/internal/models"
+	"github.com/devopsproxy/dp/internal/policy"
 )
 
 // ── test double ───────────────────────────────────────────────────────────────

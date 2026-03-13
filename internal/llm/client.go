@@ -3,7 +3,7 @@ package llm
 import (
 	"context"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
+	"github.com/devopsproxy/dp/internal/models"
 )
 
 // SummaryRequest asks the LLM to produce a human-readable summary of a

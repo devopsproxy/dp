@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
+	"github.com/devopsproxy/dp/internal/models"
 )
 
 // AWSS3PublicBucketRule flags S3 buckets that do not have all four public-access
@@ -27,17 +27,17 @@ func (r AWSS3PublicBucketRule) Evaluate(ctx RuleContext) []models.Finding {
 			continue
 		}
 		findings = append(findings, models.Finding{
-			ID:              fmt.Sprintf("%s-%s", r.ID(), b.Name),
-			RuleID:          r.ID(),
-			ResourceID:      b.Name,
-			ResourceType:    models.ResourceAWSS3Bucket,
-			Region:          "global",
-			AccountID:       ctx.AccountID,
-			Profile:         ctx.Profile,
-			Severity:        models.SeverityHigh,
-			Explanation:     "S3 bucket does not have all Block Public Access settings enabled.",
-			Recommendation:  "Enable all four S3 Block Public Access settings at the bucket or account level.",
-			DetectedAt:      time.Now().UTC(),
+			ID:             fmt.Sprintf("%s-%s", r.ID(), b.Name),
+			RuleID:         r.ID(),
+			ResourceID:     b.Name,
+			ResourceType:   models.ResourceAWSS3Bucket,
+			Region:         "global",
+			AccountID:      ctx.AccountID,
+			Profile:        ctx.Profile,
+			Severity:       models.SeverityHigh,
+			Explanation:    "S3 bucket does not have all Block Public Access settings enabled.",
+			Recommendation: "Enable all four S3 Block Public Access settings at the bucket or account level.",
+			DetectedAt:     time.Now().UTC(),
 		})
 	}
 	return findings

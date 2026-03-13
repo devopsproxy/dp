@@ -16,8 +16,8 @@ import (
 	k8sclient "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
-	kube "github.com/pankaj-dahiya-devops/Devops-proxy/internal/providers/kubernetes"
+	"github.com/devopsproxy/dp/internal/models"
+	kube "github.com/devopsproxy/dp/internal/providers/kubernetes"
 )
 
 // ── kubernetes inspect test helpers ──────────────────────────────────────────
@@ -26,9 +26,9 @@ import (
 // fake clientset. It records the context name passed to ClientsetForContext so
 // tests can assert the flag is forwarded correctly.
 type testKubeProvider struct {
-	clientset      k8sclient.Interface
-	info           kube.ClusterInfo
-	calledWithCtx  string
+	clientset     k8sclient.Interface
+	info          kube.ClusterInfo
+	calledWithCtx string
 }
 
 func (p *testKubeProvider) ClientsetForContext(contextName string) (k8sclient.Interface, kube.ClusterInfo, error) {
@@ -332,8 +332,8 @@ func TestRunKubernetesInspect_Output(t *testing.T) {
 	for _, want := range []string{
 		"dev-cluster",
 		"https://192.168.1.100:6443",
-		"2",  // node count
-		"3",  // namespace count
+		"2", // node count
+		"3", // namespace count
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q\ngot:\n%s", want, out)

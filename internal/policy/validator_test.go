@@ -3,7 +3,7 @@ package policy_test
 import (
 	"testing"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/policy"
+	"github.com/devopsproxy/dp/internal/policy"
 )
 
 // knownRules is a fixed rule ID set used by all validator tests.

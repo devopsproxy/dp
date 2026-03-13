@@ -8,11 +8,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/policy"
-	kube "github.com/pankaj-dahiya-devops/Devops-proxy/internal/providers/kubernetes"
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/rules"
-	k8scorepack "github.com/pankaj-dahiya-devops/Devops-proxy/internal/rulepacks/kubernetes_core"
+	"github.com/devopsproxy/dp/internal/models"
+	"github.com/devopsproxy/dp/internal/policy"
+	kube "github.com/devopsproxy/dp/internal/providers/kubernetes"
+	k8scorepack "github.com/devopsproxy/dp/internal/rulepacks/kubernetes_core"
+	"github.com/devopsproxy/dp/internal/rules"
 )
 
 // pssEngine builds a KubernetesEngine wired to the full kubernetes_core pack

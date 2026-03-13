@@ -9,8 +9,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
-	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/providers/aws/common"
+	"github.com/devopsproxy/dp/internal/models"
+	"github.com/devopsproxy/dp/internal/providers/aws/common"
 )
 
 // DefaultCostCollector is the production implementation of CostCollector.
@@ -88,7 +88,7 @@ func (d *DefaultCostCollector) CollectAll(
 	sem := make(chan struct{}, maxConcurrentRegions)
 
 	var (
-		mu           sync.Mutex
+		mu            sync.Mutex
 		allRegionData []models.AWSRegionData
 	)
 
