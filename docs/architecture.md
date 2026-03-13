@@ -691,6 +691,56 @@ Internet
 
 ---
 
+## Risk Prioritization Engine
+
+**`dp risk top`** — `internal/risk/analyzer.go`
+
+`dp risk top` is dp's attack-path risk prioritization engine, similar to how
+commercial CNAPP tools highlight the most dangerous paths instead of listing
+hundreds of raw findings.
+
+### Command
+
+```
+dp risk top [--context <kubeconfig-context>] [--top <N>]
+```
+
+The command reuses the existing Kubernetes audit pipeline to build the asset
+graph and passes it to `risk.AnalyzeTopRisks`. No new data collection and no
+rule-engine changes are needed.
+
+### Detected toxic combinations
+
+| Pattern | Nodes traversed | Score | Severity |
+|---------|----------------|-------|---------|
+| P1 | Internet → LB → **Workload** → **Node** | 70 | HIGH |
+| P2 | Internet → LB → **Workload** → **IAMRole** | 80 | HIGH |
+| P3 | Internet → LB → **Workload** → **IAMRole** → **CloudResource** | 130 | CRITICAL |
+| P4 | **Workload** → **Node** → **IAMRole** (no Internet required) | 70 | HIGH |
+
+### Scoring model
+
+Each component present in a detected path contributes an additive weight:
+
+| Component | Score |
+|-----------|-------|
+| Internet exposure | +40 |
+| Node access | +30 |
+| IAM role reachable | +40 |
+| Cloud resource reachable | +50 |
+
+Severity thresholds: ≥ 100 → CRITICAL · ≥ 70 → HIGH · ≥ 40 → MEDIUM.
+
+### Design constraints
+
+- `internal/risk` is a pure analysis package — no AWS API calls, no rule logic
+- Uses only edges already present in the asset graph (`EXPOSES`, `ROUTES_TO`,
+  `RUNS_ON`, `RUNS_AS`, `ASSUMES_ROLE`, `CAN_ACCESS`)
+- Deduplication ensures each unique path appears once; sorted by score descending
+- Nil graph returns nil (safe when no Kubernetes connection is available)
+
+---
+
 ## Toxic Combination Engine
 
 **Phase 19** — `internal/analysis/toxic.go`
