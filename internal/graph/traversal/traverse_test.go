@@ -291,3 +291,96 @@ func TestTraverseFromNode_MissingStart(t *testing.T) {
 		t.Errorf("expected nil for missing start node; got %v", p)
 	}
 }
+
+// ── TestTraversal_IAMChain ─────────────────────────────────────────────────────
+
+// TestTraversal_IAMChain verifies that traversal correctly follows ASSUME_ROLE
+// edges (IAMRole → IAMRole) in the sensitiveEdgeTypes set and that cycle
+// protection prevents infinite loops through bidirectional ASSUME_ROLE edges.
+func TestTraversal_IAMChain(t *testing.T) {
+	t.Run("follows_assume_role_edges", func(t *testing.T) {
+		// Chain: IAMRole_A --ASSUME_ROLE--> IAMRole_B --CAN_ACCESS--> S3
+		g := graph.NewGraph()
+		g.AddNode(&graph.Node{ID: "RoleA", Type: graph.NodeTypeIAMRole, Name: "role-a"})
+		g.AddNode(&graph.Node{ID: "RoleB", Type: graph.NodeTypeIAMRole, Name: "role-b"})
+		g.AddNode(&graph.Node{
+			ID:       "S3_bucket",
+			Type:     graph.NodeTypeS3Bucket,
+			Name:     "secret-data",
+			Metadata: map[string]string{"sensitivity": "high"},
+		})
+
+		g.AddEdge("RoleA", "RoleB", graph.EdgeTypeAssumeRole)
+		g.AddEdge("RoleB", "S3_bucket", graph.EdgeTypeCanAccess)
+
+		paths := FindSensitiveResources(g, "RoleA")
+		if len(paths) == 0 {
+			t.Fatal("expected S3 bucket reachable via ASSUME_ROLE chain; got none")
+		}
+		found := false
+		for _, n := range paths {
+			if n.ID == "S3_bucket" {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("expected S3_bucket in sensitive resources; got %v", paths)
+		}
+	})
+
+	t.Run("cycle_protection", func(t *testing.T) {
+		// Bidirectional ASSUME_ROLE cycle: RoleA ↔ RoleB
+		// Traversal must terminate without infinite loop.
+		g := graph.NewGraph()
+		g.AddNode(&graph.Node{ID: "RoleA", Type: graph.NodeTypeIAMRole, Name: "role-a"})
+		g.AddNode(&graph.Node{ID: "RoleB", Type: graph.NodeTypeIAMRole, Name: "role-b"})
+
+		g.AddEdge("RoleA", "RoleB", graph.EdgeTypeAssumeRole)
+		g.AddEdge("RoleB", "RoleA", graph.EdgeTypeAssumeRole) // creates cycle
+
+		// Should return without panic and without looping.
+		paths := TraverseFromNode(g, "RoleA", TraversalOptions{
+			AllowedEdgeTypes: []graph.EdgeType{graph.EdgeTypeAssumeRole},
+		})
+		// With a cycle and no leaf nodes, no complete paths are returned.
+		// Just verify the call terminates (no timeout or panic).
+		_ = paths
+	})
+
+	t.Run("multi_hop_chain_detected", func(t *testing.T) {
+		// Three-hop: RoleA → RoleB → RoleC → S3(high)
+		// Verifies that ≥2 IAMRole hops produce a path ending at S3.
+		g := graph.NewGraph()
+		g.AddNode(&graph.Node{ID: "RoleA", Type: graph.NodeTypeIAMRole, Name: "role-a"})
+		g.AddNode(&graph.Node{ID: "RoleB", Type: graph.NodeTypeIAMRole, Name: "role-b"})
+		g.AddNode(&graph.Node{ID: "RoleC", Type: graph.NodeTypeIAMRole, Name: "role-c"})
+		g.AddNode(&graph.Node{
+			ID:       "S3_secret",
+			Type:     graph.NodeTypeS3Bucket,
+			Name:     "secret",
+			Metadata: map[string]string{"sensitivity": "high"},
+		})
+
+		g.AddEdge("RoleA", "RoleB", graph.EdgeTypeAssumeRole)
+		g.AddEdge("RoleB", "RoleC", graph.EdgeTypeAssumeRole)
+		g.AddEdge("RoleC", "S3_secret", graph.EdgeTypeCanAccess)
+
+		paths := TraverseFromNode(g, "RoleA", TraversalOptions{
+			AllowedEdgeTypes: sensitiveEdgeTypes,
+		})
+
+		found := false
+		for _, p := range paths {
+			if len(p.Nodes) > 0 && p.Nodes[len(p.Nodes)-1] == "S3_secret" {
+				found = true
+				// Path should include RoleA, RoleB, RoleC, S3_secret.
+				if len(p.Nodes) < 4 {
+					t.Errorf("expected at least 4 nodes in chain; got %d: %v", len(p.Nodes), p.Nodes)
+				}
+			}
+		}
+		if !found {
+			t.Errorf("expected path ending at S3_secret; none found")
+		}
+	})
+}

@@ -128,6 +128,7 @@ var sensitiveEdgeTypes = []graph.EdgeType{
 	graph.EdgeTypeRunsAs,
 	graph.EdgeTypeRunsOn,
 	graph.EdgeTypeAssumesRole,
+	graph.EdgeTypeAssumeRole, // Phase 16.1: IAMRole → IAMRole cross-role escalation
 	graph.EdgeTypeCanAccess,
 }
 

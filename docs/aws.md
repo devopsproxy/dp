@@ -166,6 +166,50 @@ dp aws audit --all --all-profiles --output json --file multi-profile.json
 
 ---
 
+## Cloud resource reachability
+
+When `dp kubernetes audit` runs with an IAM resolver configured, it extends the asset graph to include the AWS cloud resources each IAM role can reach. This enables end-to-end attack path detection from internet entry points to sensitive data.
+
+### How IAM policies are analysed
+
+`internal/providers/aws/iam.ResolveRoleResourceAccess` reads the role's attached managed policies and inline policies using the AWS IAM API. For each `Allow` statement it:
+
+1. Checks the `Action` field for a supported service prefix (`s3`, `secretsmanager`, `dynamodb`, `kms`, `ssm`).
+2. Extracts resource names from the `Resource` ARN(s) — wildcard `*` resources are skipped.
+3. Returns a deduplicated `[]models.RoleCloudAccess{ResourceType, ResourceName, ARN, Sensitivity}`.
+
+### Supported resource types
+
+| AWS service | Resource type | Graph node |
+|-------------|--------------|-----------|
+| S3 | `s3:*` actions | `S3Bucket` |
+| Secrets Manager | `secretsmanager:*` | `SecretsManagerSecret` |
+| DynamoDB | `dynamodb:*` | `DynamoDBTable` |
+| KMS | `kms:*` | `KMSKey` |
+| SSM Parameter Store | `ssm:*` | `SSMParameter` |
+
+### Wildcard handling
+
+Policy resources containing `*` are skipped — individual resource names cannot be enumerated from a wildcard without additional listing API calls. Only explicit ARNs produce graph nodes.
+
+---
+
+## Sensitive data classification
+
+After IAM resolution, each cloud resource is classified by `internal/providers/aws/sensitivity.ClassifyResource` before being added to the graph. Resources classified `HIGH` contribute to cloud attack path detection.
+
+### HIGH sensitivity rules
+
+| Pattern | Examples |
+|---------|---------|
+| Bucket or secret name contains: `prod`, `customer`, `payment`, `password`, `secret`, `credential`, `key`, `token`, `pii`, `ssn`, `private` | `prod-db-creds`, `customer-data`, `payment-keys` |
+| KMS key by default | All KMS keys are classified HIGH |
+| SSM parameters matching sensitive patterns | `/prod/db/password`, `/app/api-key` |
+
+Resources that do not match any HIGH pattern are classified as unset (not stamped in metadata). Only HIGH resources appear in cloud attack path output.
+
+---
+
 ## See also
 
 - [Policy file reference](policy.md)

@@ -282,6 +282,53 @@ func EnrichWithNodeRoles(g *Graph, nodeRoles map[string]string) {
 	}
 }
 
+// ── IAM assume-role enrichment (Phase 16.1) ──────────────────────────────────
+
+// EnrichWithAssumeRoleEdges extends an existing Graph by adding ASSUME_ROLE
+// edges between IAMRole nodes based on sts:AssumeRole permissions discovered
+// from the source role's policies.
+//
+// roleAssumptions maps source IAM role ARNs to the list of target roles they
+// can assume (as detected by iam.ResolveAssumableRoles). Only source roles that
+// already have an IAMRole node in g have edges added — enrichment never creates
+// dangling edges from unknown source nodes. Target roles not yet present are
+// added as new IAMRole nodes.
+//
+// Duplicate nodes and edges are deduplicated by the graph itself.
+func EnrichWithAssumeRoleEdges(g *Graph, roleAssumptions map[string][]models.AssumableRole) {
+	for sourceARN, targets := range roleAssumptions {
+		if len(targets) == 0 {
+			continue
+		}
+		sourceName := extractRoleName(sourceARN)
+		sourceID := sanitizeID("IAMRole_" + sourceName)
+		if g.GetNode(sourceID) == nil {
+			continue // source role not in graph — skip
+		}
+
+		for _, target := range targets {
+			if target.ARN == "" {
+				continue
+			}
+			targetName := target.RoleName
+			if targetName == "" {
+				targetName = extractRoleName(target.ARN)
+			}
+			targetID := sanitizeID("IAMRole_" + targetName)
+			// Add target IAMRole node when not already present.
+			g.AddNode(&Node{
+				ID:   targetID,
+				Type: NodeTypeIAMRole,
+				Name: targetName,
+				Metadata: map[string]string{
+					"arn": target.ARN,
+				},
+			})
+			g.AddEdge(sourceID, targetID, EdgeTypeAssumeRole)
+		}
+	}
+}
+
 // cloudResourceNodeType maps a models.CloudResourceType to its graph NodeType.
 func cloudResourceNodeType(rt models.CloudResourceType) NodeType {
 	switch rt {

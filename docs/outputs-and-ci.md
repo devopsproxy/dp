@@ -141,6 +141,40 @@ dp kubernetes audit --show-risk-chains --min-attack-score 95 --policy ./dp.yaml
 
 ---
 
+## Attack path output
+
+When `dp` detects a graph-traversal cloud attack path (Internet → IAMRole → sensitive data), it prints a `CRITICAL ATTACK PATH` block **before** the findings table. This appears automatically — not gated on `--show-risk-chains`.
+
+### Table mode
+
+```
+CRITICAL ATTACK PATH
+
+Internet → LoadBalancer_kafka-ui → Deployment_platform-api → Node_ip-10-0-1-1 → IAMRole_node-role → S3Bucket_customer-data
+```
+
+Each path is a `→`-separated chain of asset graph node IDs. Multiple paths each get their own header.
+
+### JSON mode
+
+Cloud attack paths appear in `summary.cloud_attack_paths` regardless of `--show-risk-chains`:
+
+```json
+"cloud_attack_paths": [
+  {
+    "score": 110,
+    "source": "Internet",
+    "target": "S3Bucket_customer-data",
+    "nodes": ["Internet", "LoadBalancer_kafka-ui", "Deployment_platform-api",
+              "IAMRole_app-role", "IAMRole_admin-role", "S3Bucket_customer-data"]
+  }
+]
+```
+
+Score 110 = cross-role escalation (≥2 IAMRole hops). Score 100 = max without escalation.
+
+---
+
 ## Enforcement timing
 
 Policy enforcement fires **after all output is produced**:
@@ -171,6 +205,7 @@ This means the report is always available even when the command exits 1.
     "low_findings": 0,
     "total_estimated_monthly_savings_usd": 0,
     "risk_score": 96,
+    "cloud_attack_paths": [...],
     "attack_paths": [...],
     "risk_chains": [...]
   },
@@ -194,7 +229,7 @@ This means the report is always available even when the command exits 1.
 }
 ```
 
-`attack_paths` and `risk_chains` are present only when `--show-risk-chains` is set. Both use `omitempty` so they are absent from the JSON when empty.
+`cloud_attack_paths` is always present when graph-traversal paths are detected (not gated on any flag). `attack_paths` and `risk_chains` are present only when `--show-risk-chains` is set. All three use `omitempty` so they are absent when empty.
 
 ---
 
