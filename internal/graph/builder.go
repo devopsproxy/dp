@@ -223,13 +223,18 @@ func EnrichWithCloudAccess(g *Graph, roleAccess map[string][]models.RoleCloudAcc
 			nt := cloudResourceNodeType(access.ResourceType)
 
 			// Add cloud resource node (first-write-wins if already present).
+			// Phase 15: stamp sensitivity metadata when a classification is set.
+			meta := map[string]string{
+				"arn": access.ARN,
+			}
+			if access.Sensitivity != "" {
+				meta["sensitivity"] = string(access.Sensitivity)
+			}
 			g.AddNode(&Node{
-				ID:   nodeID,
-				Type: nt,
-				Name: access.ResourceName,
-				Metadata: map[string]string{
-					"arn": access.ARN,
-				},
+				ID:       nodeID,
+				Type:     nt,
+				Name:     access.ResourceName,
+				Metadata: meta,
 			})
 
 			g.AddEdge(roleID, nodeID, EdgeTypeCanAccess)
@@ -288,6 +293,8 @@ func cloudResourceNodeType(rt models.CloudResourceType) NodeType {
 		return NodeTypeDynamoDBTable
 	case models.CloudResourceTypeKMSKey:
 		return NodeTypeKMSKey
+	case models.CloudResourceTypeSSMParameter:
+		return NodeTypeSSMParameter
 	default:
 		return NodeType(rt) // passthrough for forward compatibility
 	}

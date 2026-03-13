@@ -9,6 +9,7 @@ import (
 	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/graph"
 	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/models"
 	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/policy"
+	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/providers/aws/sensitivity"
 	kube "github.com/pankaj-dahiya-devops/Devops-proxy/internal/providers/kubernetes"
 	"github.com/pankaj-dahiya-devops/Devops-proxy/internal/rules"
 )
@@ -208,6 +209,13 @@ func (e *KubernetesEngine) RunAudit(ctx context.Context, opts KubernetesAuditOpt
 				}
 				accesses, resolveErr := e.iamResolver.ResolveRoleResourceAccess(ctx, arn)
 				if resolveErr == nil && len(accesses) > 0 {
+					// Phase 15: classify sensitivity for each cloud resource.
+					for i := range accesses {
+						accesses[i].Sensitivity = sensitivity.ClassifyResource(
+							accesses[i].ResourceType,
+							accesses[i].ResourceName,
+						)
+					}
 					roleAccess[arn] = accesses
 				}
 			}

@@ -270,6 +270,72 @@ The command runs `RunAudit` to build the asset graph, then traverses it — it d
 
 ---
 
+## Graph Traversal Engine (`internal/graph/traversal`) — Phase 15.1
+
+The `internal/graph/traversal` package provides a **reusable, algorithmic traversal engine** for the asset graph. It contains no business logic, no rule matching, and no scoring. Higher-level packages (`internal/engine`, `internal/graph/blast`) call it to discover paths and reachable nodes without implementing their own BFS/DFS loops.
+
+### Package boundary
+
+```
+internal/graph           ← imported by traversal (one-way)
+internal/graph/traversal ← imported by internal/engine
+internal/graph/blast.go  ← keeps its own BFS (no circular dependency)
+```
+
+`blast.go` lives in `package graph` and cannot import `internal/graph/traversal` without a cycle. It retains its own BFS implementation unchanged.
+
+### Core API
+
+```go
+// TraversalOptions configures which edge types are followed.
+type TraversalOptions struct {
+    AllowedEdgeTypes []graph.EdgeType  // empty = follow all
+}
+
+// TraversalResult represents one complete path from start to a leaf node.
+type TraversalResult struct {
+    Nodes []string  // ordered node IDs (start → leaf, inclusive)
+    Edges []string  // "fromID→toID" per hop; len(Edges) == len(Nodes)-1
+}
+
+// TraverseFromNode enumerates all distinct paths via DFS.
+// Cycle protection: a node may not appear twice in the same path.
+// Paths of length zero (start node, no eligible neighbours) are not returned.
+// Returns nil when startNodeID does not exist.
+func TraverseFromNode(g *graph.Graph, startNodeID string, opts TraversalOptions) []TraversalResult
+
+func GetNeighbors(g *graph.Graph, nodeID string) []string
+func NodeType(g *graph.Graph, nodeID string) string
+
+// FindSensitiveResources returns cloud resource nodes reachable from
+// startNodeID via identity/access edges with sensitivity == "high".
+// Results are sorted by Name ascending.
+func FindSensitiveResources(g *graph.Graph, startNodeID string) []*graph.Node
+```
+
+### Graph-Based Attack Path Detection (`internal/engine/kubernetes_attack_paths.go`)
+
+`FindGraphAttackPaths(g *graph.Graph) []GraphAttackPath` uses the traversal engine to discover attack paths from Internet-exposed entry points to sensitive cloud resource leaf nodes. This replaces static rule-pattern matching with dynamic graph topology analysis.
+
+**Algorithm:**
+1. Find all `NodeTypeInternet` nodes (attacker entry points).
+2. Call `TraverseFromNode` with the full attacker-movement edge set: `EXPOSES`, `ROUTES_TO`, `RUNS_ON`, `RUNS_AS`, `ASSUMES_ROLE`, `CAN_ACCESS`.
+3. Discard paths whose last node is not a cloud resource type.
+4. Score each surviving path via `ScorePath`.
+5. Return paths sorted by score descending.
+
+**Path scoring (`ScorePath`):**
+
+| Criterion | Score |
+|-----------|-------|
+| Path starts at Internet node | +40 |
+| Path passes through a Workload node | +20 |
+| Path passes through an IAM role | +20 |
+| Path ends at a high-sensitivity cloud resource | +20 |
+| **Maximum** | **100** |
+
+---
+
 ## Design decisions
 
 | Decision | Choice | Rationale |
