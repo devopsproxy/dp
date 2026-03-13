@@ -1,4 +1,4 @@
-module github.com/pankaj-dahiya-devops/Devops-proxy
+module github.com/devopsproxy/dp
 
 go 1.25.0
 
