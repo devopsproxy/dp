@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/devopsproxy/dp/internal/analysis"
 	"github.com/devopsproxy/dp/internal/graph"
 	"github.com/devopsproxy/dp/internal/models"
 	"github.com/devopsproxy/dp/internal/policy"
@@ -343,8 +344,12 @@ func (e *KubernetesEngine) RunAudit(ctx context.Context, opts KubernetesAuditOpt
 	// Detect Internet → sensitive cloud resource attack paths via graph traversal.
 	// Runs after EnrichWithFindings so Misconfiguration nodes are included in
 	// traversal paths.
+	var toxicCombinations []models.ToxicRisk
 	if e.lastCtx.AssetGraph != nil {
 		cloudAttackPaths = DetectCloudAttackPaths(e.lastCtx.AssetGraph)
+		// Phase 19: detect predefined high-risk topology patterns (toxic combinations).
+		// Runs alongside cloud attack path detection — same graph, independent analysis.
+		toxicCombinations = analysis.DetectToxicCombinations(e.lastCtx.AssetGraph)
 	}
 
 	if opts.ExcludeSystem {
@@ -390,6 +395,10 @@ func (e *KubernetesEngine) RunAudit(ctx context.Context, opts KubernetesAuditOpt
 	// gated on ShowRiskChains — they surface independently of rule correlation).
 	if len(cloudAttackPaths) > 0 {
 		summary.CloudAttackPaths = cloudAttackPaths
+	}
+	// Phase 19: attach toxic combinations (always, independent of ShowRiskChains).
+	if len(toxicCombinations) > 0 {
+		summary.ToxicCombinations = toxicCombinations
 	}
 
 	// Phase 5D/6: populate risk chain and attack path groupings when requested.

@@ -691,6 +691,63 @@ Internet
 
 ---
 
+## Toxic Combination Engine
+
+**Phase 19** — `internal/analysis/toxic.go`
+
+The Toxic Combination Engine scans the asset graph for predefined high-risk
+topology patterns that represent real-world exploit chains. It is distinct
+from the attack path correlation layer (`buildAttackPaths`) — it operates
+on graph structure rather than rule findings, and requires the asset graph
+to be populated with cloud resource nodes (S3, Secrets Manager) via the
+cloud reachability enrichment step (Phase 12).
+
+### Predefined patterns
+
+| # | Severity | Pattern | Description |
+|---|----------|---------|-------------|
+| 1 | CRITICAL | Internet → LB → Workload → Node → IAMRole → S3Bucket | Internet-exposed workload reaches S3 via node instance-profile (no IRSA isolation) |
+| 2 | CRITICAL | Internet → LB → Workload → Node → IAMRole → SecretsManager | Same topology; target is a Secrets Manager secret |
+| 3 | HIGH | Workload → ServiceAccount → IAMRole → SecretsManager | IRSA-bound workload can read secrets directly |
+
+### Matching algorithm
+
+Each pattern specifies a `startType` node and a `sequence` of `NodeType` values.
+For each start node the traversal package enumerates all reachable paths
+(`traversal.TraverseFromNode`) using `toxicEdgeTypes` (all attack path edges plus
+`AMPLIFIES`). A path matches when its node type sequence contains the pattern
+sequence as an **ordered subsequence** (gaps allowed for intermediate topology hops).
+
+Matched results are deduplicated (same node IDs + same pattern = one entry) and
+sorted CRITICAL-first, then HIGH; within each severity, alphabetically by path.
+
+### Output
+
+Toxic combinations are attached to `AuditSummary.ToxicCombinations []ToxicRisk`
+(JSON: `summary.toxic_combinations`) and are always surfaced — they are not gated
+on `--show-risk-chains`. In table mode they appear in a **TOXIC COMBINATIONS**
+section before the findings table. Each line shows the severity and the ordered
+human-readable path of node names:
+
+```
+TOXIC COMBINATIONS
+
+  CRITICAL  Internet → kafka-ui → platform-api → ip-10-0-1-5 → eks-node-role → customer-data
+  HIGH      billing → billing-sa → billing-role → api-key
+```
+
+### Design constraints
+
+- No rule logic, no AWS API calls — pure graph topology analysis
+- `toxicEdgeTypes` mirrors `attackPathEdges` plus `EdgeTypeAmplifies` so
+  Misconfiguration nodes (Phase 18) are traversed
+- Nil graph returns nil (no-op when cloud enrichment is unavailable)
+- Deduplication ensures each unique matched chain appears at most once
+- Pattern sequence uses ordered-subsequence matching, not strict contiguous match,
+  to tolerate intermediate hops in real topologies
+
+---
+
 ## Design decisions
 
 | Decision | Choice | Rationale |

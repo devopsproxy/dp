@@ -136,6 +136,25 @@ type AuditSummary struct {
 	// attack paths ordered by descending score (Phase 16). Populated whenever
 	// the asset graph is available and contains Internet-to-cloud-resource paths.
 	CloudAttackPaths []CloudAttackPath `json:"cloud_attack_paths,omitempty"`
+	// ToxicCombinations lists high-risk exploit chains detected by the toxic
+	// combination engine (Phase 19). Populated whenever the asset graph is
+	// available and matches one or more predefined toxic patterns.
+	// Ordered CRITICAL first, then HIGH.
+	ToxicCombinations []ToxicRisk `json:"toxic_combinations,omitempty"`
+}
+
+// ToxicRisk represents a high-risk exploit chain detected by the toxic
+// combination engine (Phase 19). Each entry describes a single matched
+// pattern in the asset graph, the severity of that pattern, and the ordered
+// sequence of node names forming the chain.
+type ToxicRisk struct {
+	// Severity is "CRITICAL" or "HIGH" depending on the matched pattern.
+	Severity string `json:"severity"`
+	// Reason is a human-readable explanation of why this combination is risky.
+	Reason string `json:"reason"`
+	// Path contains the ordered node names forming the detected chain,
+	// from the entry point to the sensitive target.
+	Path []string `json:"path"`
 }
 
 // AuditReport is the top-level, SaaS-compatible output of any audit run.

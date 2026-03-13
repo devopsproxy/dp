@@ -514,6 +514,10 @@ func renderKubernetesAuditOutput(w io.Writer, report *models.AuditReport, output
 	if len(report.Summary.CloudAttackPaths) > 0 {
 		renderCloudAttackPaths(w, report.Summary.CloudAttackPaths)
 	}
+	// Phase 19: surface toxic combinations in table mode.
+	if len(report.Summary.ToxicCombinations) > 0 {
+		renderToxicCombinations(w, report.Summary.ToxicCombinations)
+	}
 	dpoutput.RenderTable(w, report.Findings, dpoutput.TableOptions{
 		Colored:        colored,
 		IncludeSavings: false,
@@ -609,6 +613,21 @@ func renderCloudAttackPathNode(nodeID string) string {
 	return fmt.Sprintf("%s (%s)", miscType, resourceName)
 }
 
+// renderToxicCombinations prints a TOXIC COMBINATIONS section (Phase 19) listing
+// high-risk exploit chains detected by the analysis package.
+// Each entry shows the severity and the ordered path of node names.
+func renderToxicCombinations(w io.Writer, toxics []models.ToxicRisk) {
+	if len(toxics) == 0 {
+		return
+	}
+	fmt.Fprintln(w, "TOXIC COMBINATIONS")
+	fmt.Fprintln(w)
+	for _, t := range toxics {
+		fmt.Fprintf(w, "  %s  %s\n", t.Severity, strings.Join(t.Path, " → "))
+	}
+	fmt.Fprintln(w)
+}
+
 // renderRiskChainTable prints attack paths (Phase 6) and risk chains (Phase 5D)
 // grouped by score to w. Attack path sections are printed BEFORE risk chain
 // sections. Findings not part of any path or chain are shown last under
@@ -625,6 +644,10 @@ func renderRiskChainTable(w io.Writer, report *models.AuditReport, colored bool)
 	// Phase 16: cloud attack paths are surfaced regardless of hasPaths/hasChains.
 	if len(report.Summary.CloudAttackPaths) > 0 {
 		renderCloudAttackPaths(w, report.Summary.CloudAttackPaths)
+	}
+	// Phase 19: toxic combinations are surfaced alongside cloud attack paths.
+	if len(report.Summary.ToxicCombinations) > 0 {
+		renderToxicCombinations(w, report.Summary.ToxicCombinations)
 	}
 
 	if !hasPaths && !hasChains {
