@@ -294,15 +294,10 @@ func (e *KubernetesEngine) RunAudit(ctx context.Context, opts KubernetesAuditOpt
 		}
 	}
 
-	// ── Cloud Attack Path Detection (Phase 16) ───────────────────────────────
-	// Detect Internet → sensitive cloud resource attack paths via graph traversal.
-	// Must run after both cloud reachability enrichment (Phase 12) and node role
-	// enrichment (Phase 14) so all CAN_ACCESS and ASSUMES_ROLE edges are present.
-	// Non-fatal: detection is skipped when the asset graph is nil.
+	// cloudAttackPaths will be populated after rule evaluation and misconfiguration
+	// enrichment (Phase 18) so the graph includes Misconfiguration nodes before
+	// traversal runs. Declared here so it is in scope for the report assembly below.
 	var cloudAttackPaths []models.CloudAttackPath
-	if e.lastCtx.AssetGraph != nil {
-		cloudAttackPaths = DetectCloudAttackPaths(e.lastCtx.AssetGraph)
-	}
 
 	// ── Provider detection ────────────────────────────────────────────────────
 	k8sData.ClusterProvider = detectClusterProvider(k8sData.Nodes)
@@ -334,6 +329,24 @@ func (e *KubernetesEngine) RunAudit(ctx context.Context, opts KubernetesAuditOpt
 	merged := mergeFindings(raw)
 	annotateNamespaceType(merged)
 	annotateStructuralTopology(merged, k8sData) // Phase 10.3: stamp pod labels, SA name, service selector
+
+	// ── Misconfiguration Bridging (Phase 18) ─────────────────────────────────
+	// Inject Misconfiguration nodes into the asset graph from the merged findings
+	// so that graph traversal can surface security misconfigurations as attack
+	// path amplifiers. Must run after annotateStructuralTopology (workload_name
+	// metadata is needed for PrivilegedContainer matching) and before
+	// DetectCloudAttackPaths so all Misconfiguration nodes are present during
+	// traversal. Non-fatal: EnrichWithFindings is a no-op when AssetGraph is nil.
+	EnrichWithFindings(e.lastCtx.AssetGraph, merged)
+
+	// ── Cloud Attack Path Detection (Phase 16 + 18) ───────────────────────────
+	// Detect Internet → sensitive cloud resource attack paths via graph traversal.
+	// Runs after EnrichWithFindings so Misconfiguration nodes are included in
+	// traversal paths.
+	if e.lastCtx.AssetGraph != nil {
+		cloudAttackPaths = DetectCloudAttackPaths(e.lastCtx.AssetGraph)
+	}
+
 	if opts.ExcludeSystem {
 		merged = excludeSystemFindings(merged)
 	}

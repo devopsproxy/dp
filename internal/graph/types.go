@@ -63,6 +63,13 @@ const (
 	// NodeTypeSSMParameter is an AWS Systems Manager Parameter Store entry
 	// reachable via an IAM role (Phase 15 sensitivity classification).
 	NodeTypeSSMParameter NodeType = "SSMParameter"
+
+	// NodeTypeMisconfiguration represents a security misconfiguration detected
+	// by the rule engine that amplifies an existing attack path. Misconfiguration
+	// nodes are injected into the asset graph by EnrichWithFindings (Phase 18)
+	// so that graph traversal can surface them as attack path amplifiers.
+	// Examples: PublicLoadBalancer, WildcardIAMRole, PrivilegedContainer.
+	NodeTypeMisconfiguration NodeType = "Misconfiguration"
 )
 
 // EdgeType describes the relationship direction between two Nodes.
@@ -108,6 +115,12 @@ const (
 	// sts:AssumeRole on role B, enabling cross-role privilege escalation.
 	// Added in Phase 16.1 to model multi-hop IAM escalation paths.
 	EdgeTypeAssumeRole EdgeType = "ASSUME_ROLE"
+
+	// EdgeTypeAmplifies: Asset → Misconfiguration — a rule-detected
+	// misconfiguration is attached to the asset it affects, indicating
+	// that the misconfiguration amplifies the risk of an attack path
+	// passing through that asset. Added in Phase 18.
+	EdgeTypeAmplifies EdgeType = "AMPLIFIES"
 )
 
 // Node represents a security-relevant infrastructure entity in the asset graph.

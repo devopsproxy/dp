@@ -195,9 +195,21 @@ where the cloud resource has `sensitivity = "high"`. Both identity chains are fo
 ### Example output
 
 ```
-CRITICAL ATTACK PATH
+ATTACK PATH SUMMARY
 
-Internet → LoadBalancer_kafka-ui → Deployment_platform-api → Node_ip-10-0-1-1 → IAMRole_node-role → S3Bucket_customer-data
+  CRITICAL: 1
+
+CRITICAL ATTACK PATH (Score: 110)
+
+Internet
+ → LoadBalancer_kafka-ui
+ → Deployment_platform-api
+ → Node_ip-10-0-1-1
+ → IAMRole_node-role
+ → IAMRole_admin-role
+ → S3Bucket_customer-data [SENSITIVE]
+
+Explanation: Traffic enters from the Internet. ...
 ```
 
 ### Scoring
@@ -211,12 +223,26 @@ Internet → LoadBalancer_kafka-ui → Deployment_platform-api → Node_ip-10-0-
 | ≥2 IAMRole nodes (cross-role escalation) | +10 |
 | **Maximum** | **110** |
 
+### Attack path prioritization
+
+Each cloud attack path carries a **severity** classification and a `HasSensitiveData` flag:
+
+| Score range | Severity |
+|-------------|----------|
+| ≥ 90 | CRITICAL |
+| 70 – 89 | HIGH |
+| < 70 | MEDIUM |
+
+Paths are sorted CRITICAL first, then by descending score, then by ascending path length (shorter = more direct = higher priority). The `[SENSITIVE]` marker appears on the target node when the cloud resource has `sensitivity = "high"`.
+
 ### JSON output
 
 ```json
 "cloud_attack_paths": [
   {
     "score": 110,
+    "severity": "CRITICAL",
+    "has_sensitive_data": true,
     "source": "Internet",
     "target": "S3Bucket_customer-data",
     "nodes": [
