@@ -691,13 +691,57 @@ Internet
 
 ---
 
+## Output Modes (Phase 21)
+
+All `dp kubernetes risk` commands support two output modes controlled by the
+`--output` flag.
+
+| Mode | Flag | Audience | Guarantee |
+|------|------|----------|-----------|
+| Table (default) | `--output table` | Humans | Column-aligned, readable prose with headers |
+| JSON | `--output json` | Automation / CI | Pure JSON only — no banners, no headers |
+
+### JSON contract for risk commands
+
+`dp kubernetes risk top --output json` emits an indented JSON array of
+`RiskFinding` objects. Each object contains the fields declared in
+`internal/risk/analyzer.go`:
+
+```json
+[
+  {
+    "title": "Internet → haproxy → ip-10-3-23-253.ec2.internal",
+    "path": ["Internet", "haproxy", "ip-10-3-23-253.ec2.internal"],
+    "score": 70,
+    "severity": "HIGH",
+    "explanation": "Internet exposed workload could allow an attacker to access the Kubernetes node."
+  }
+]
+```
+
+`dp kubernetes risk explain --output json` emits a single-element JSON array
+containing the top-scored finding.
+
+When no risks are detected in JSON mode, `risk top` emits `[]` (empty array)
+and `risk explain` emits `{"error": "No attack path risks detected."}`.
+
+### Design constraints
+
+- JSON output contains **only** the payload — no table headers, no banners,
+  no "No risks detected" prose messages
+- `--output` defaults to `table`; invalid values fall through to table mode
+- Both commands share `encodeRiskJSON(w, []RiskFinding)` (in `cmd/dp/risk.go`)
+  to ensure identical serialisation
+
+---
+
 ## Risk Prioritization Engine
 
-**`dp risk top`** — `internal/risk/analyzer.go`
+**`dp kubernetes risk top`** — `internal/risk/analyzer.go`
 
-`dp risk top` is dp's attack-path risk prioritization engine, similar to how
-commercial CNAPP tools highlight the most dangerous paths instead of listing
-hundreds of raw findings.
+`dp kubernetes risk top` is dp's attack-path risk prioritization engine,
+similar to how commercial CNAPP tools highlight the most dangerous paths
+instead of listing hundreds of raw findings.
 
 ### Command
 
