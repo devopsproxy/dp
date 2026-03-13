@@ -14,6 +14,7 @@ var cloudResourceSet = map[NodeType]struct{}{
 	NodeTypeSecretsManagerSecret: {},
 	NodeTypeDynamoDBTable:        {},
 	NodeTypeKMSKey:               {},
+	NodeTypeSSMParameter:         {},
 }
 
 // traversalEdgeSet is the set of EdgeTypes followed during blast-radius BFS.

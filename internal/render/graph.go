@@ -190,9 +190,8 @@ func BuildAttackGraph(summary models.AuditSummary, findings []models.Finding, as
 
 		// ── Node nodes: instance-profile identity path (Phase 14) ───────────
 		// When the asset graph is available, follow RUNS_ON edges from each
-		// workload node to Node nodes, then ASSUMES_ROLE from Node to IAMRole.
-		// This surfaces the Workload → Node → IAMRole chain for clusters that
-		// do not use IRSA and rely on the EC2 instance profile instead.
+		// workload node to Node nodes, then ASSUMES_ROLE from Node to IAMRole,
+		// then CAN_ACCESS from IAMRole to cloud resources (Phase 15).
 		if assetGraph != nil {
 			for _, f := range podFindings {
 				wid, _, _ := workloadNodeInfo(f)
@@ -217,6 +216,8 @@ func BuildAttackGraph(summary models.AuditSummary, findings []models.Finding, as
 						}
 						addNode(re.To, roleNode.Name+" (AWS IAM)", "IAMRole")
 						addEdge(e.To, re.To)
+						// Follow CAN_ACCESS from IAMRole to cloud resources.
+						addCloudResourceEdges(assetGraph, re.To, addNode, addEdge)
 					}
 				}
 			}
@@ -243,7 +244,7 @@ func BuildAttackGraph(summary models.AuditSummary, findings []models.Finding, as
 				}
 			}
 
-			// Phase 11: IRSA bridge — SA → IAMRole.
+			// Phase 11: IRSA bridge — SA → IAMRole → cloud resources (Phase 15).
 			// Source of truth: AssetGraph when available, else iam_role_arn metadata.
 			if assetGraph != nil {
 				for _, e := range assetGraph.EdgesFrom(nid) {
@@ -252,6 +253,8 @@ func BuildAttackGraph(summary models.AuditSummary, findings []models.Finding, as
 						if roleNode != nil {
 							addNode(e.To, roleNode.Name+" (AWS IAM)", "IAMRole")
 							addEdge(nid, e.To)
+							// Follow CAN_ACCESS from IAMRole to cloud resources.
+							addCloudResourceEdges(assetGraph, e.To, addNode, addEdge)
 						}
 					}
 				}
@@ -272,6 +275,35 @@ func BuildAttackGraph(summary models.AuditSummary, findings []models.Finding, as
 	}
 
 	return g
+}
+
+// addCloudResourceEdges follows CAN_ACCESS edges from an IAMRole node in the
+// asset graph and registers cloud resource nodes with sensitivity-annotated
+// labels. Sensitivity "high" produces a "(HIGH)" suffix on the node label.
+// This is used by BuildAttackGraph to surface the full attack chain:
+//
+//	Workload → (SA|Node) → IAMRole → S3Bucket (HIGH)
+func addCloudResourceEdges(
+	assetGraph *graph.Graph,
+	roleID string,
+	addNode func(id, label, typ string),
+	addEdge func(from, to string),
+) {
+	for _, ce := range assetGraph.EdgesFrom(roleID) {
+		if ce.Type != graph.EdgeTypeCanAccess {
+			continue
+		}
+		cloudNode := assetGraph.GetNode(ce.To)
+		if cloudNode == nil {
+			continue
+		}
+		label := cloudNode.Name
+		if cloudNode.Metadata["sensitivity"] == "high" {
+			label += " (HIGH)"
+		}
+		addNode(ce.To, label, string(cloudNode.Type))
+		addEdge(roleID, ce.To)
+	}
 }
 
 // workloadNodeInfo returns the graph node ID, label, and type for a pod finding.

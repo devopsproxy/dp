@@ -16,6 +16,9 @@ const (
 
 	// CloudResourceTypeKMSKey is an AWS KMS key.
 	CloudResourceTypeKMSKey CloudResourceType = "KMSKey"
+
+	// CloudResourceTypeSSMParameter is an AWS Systems Manager Parameter Store entry.
+	CloudResourceTypeSSMParameter CloudResourceType = "SSMParameter"
 )
 
 // RoleCloudAccess describes a single AWS resource that an IAM role has
@@ -31,4 +34,8 @@ type RoleCloudAccess struct {
 
 	// ARN is the full Amazon Resource Name. May be empty for wildcard-derived entries.
 	ARN string
+
+	// Sensitivity is the sensitivity classification for this resource, set by
+	// internal/providers/aws/sensitivity.ClassifyResource before graph enrichment.
+	Sensitivity SensitivityLevel
 }

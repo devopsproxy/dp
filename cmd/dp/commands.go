@@ -1231,7 +1231,11 @@ func renderBlastRadiusTable(w io.Writer, _ string, result *dpgraph.BlastResult) 
 			}
 			fmt.Fprintf(w, "%s:\n", blastResourceLabel(nt))
 			for _, n := range nodes {
-				fmt.Fprintf(w, "  - %s\n", n.Name)
+				prefix := ""
+				if n.Metadata["sensitivity"] == "high" {
+					prefix = "[SENSITIVE] "
+				}
+				fmt.Fprintf(w, "  - %s%s\n", prefix, n.Name)
 			}
 		}
 	}

@@ -59,6 +59,10 @@ const (
 	// to model instance-profile-based cloud access paths where pods reach AWS
 	// through the node's IAM role rather than through IRSA.
 	NodeTypeNode NodeType = "Node"
+
+	// NodeTypeSSMParameter is an AWS Systems Manager Parameter Store entry
+	// reachable via an IAM role (Phase 15 sensitivity classification).
+	NodeTypeSSMParameter NodeType = "SSMParameter"
 )
 
 // EdgeType describes the relationship direction between two Nodes.
