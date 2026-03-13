@@ -125,14 +125,37 @@ The `internal/graph` package is an in-memory directed graph that models real inf
 | `Internet` | Conceptual external attacker entry point |
 | `LoadBalancer` | Kubernetes Service of type LoadBalancer |
 | `Workload` | Deployment, StatefulSet, DaemonSet, Job, CronJob, or ReplicaSet |
+| `Node` | Kubernetes worker node (EC2 instance); carries `provider_id` metadata |
 | `ServiceAccount` | Kubernetes ServiceAccount |
-| `IAMRole` | AWS IAM role reachable via IRSA |
+| `IAMRole` | AWS IAM role (via IRSA annotation or EC2 instance profile) |
 | `Namespace` | Kubernetes namespace (containment boundary) |
-| `Cluster` | EKS cluster (control-plane resources) |
 | `S3Bucket` | AWS S3 bucket accessible by an IAM role |
 | `SecretsManagerSecret` | AWS Secrets Manager secret accessible by an IAM role |
 | `DynamoDBTable` | AWS DynamoDB table accessible by an IAM role |
 | `KMSKey` | AWS KMS key accessible by an IAM role |
+| `SSMParameter` | AWS Systems Manager Parameter Store entry accessible by an IAM role |
+
+### Asset graph topology
+
+```
+Internet
+  ↓ EXPOSES
+LoadBalancer
+  ↓ ROUTES_TO
+Workload ──── RUNS_ON ────▶ Node
+  ↓ RUNS_AS                   ↓ ASSUMES_ROLE
+ServiceAccount              IAMRole_A ── ASSUME_ROLE ──▶ IAMRole_B
+  ↓ ASSUMES_ROLE                          ↓ CAN_ACCESS
+IAMRole                     S3Bucket / SecretsManagerSecret / SSMParameter
+```
+
+Both identity chains are supported:
+
+| Identity path | Edge sequence | Used when |
+|--------------|---------------|-----------|
+| **IRSA** | Workload → ServiceAccount → IAMRole | SA has `eks.amazonaws.com/role-arn` annotation |
+| **Instance profile** | Workload → Node → IAMRole | Pods inherit the EC2 node's IAM role |
+| **Cross-role escalation** | IAMRole_A → IAMRole_B (ASSUME_ROLE) | Source role's policies grant `sts:AssumeRole` on target |
 
 ### Edge types
 
@@ -141,9 +164,11 @@ The `internal/graph` package is an in-memory directed graph that models real inf
 | `EXPOSES` | Internet → LoadBalancer (every LB-type Service) |
 | `ROUTES_TO` | LoadBalancer → Workload (selector match) |
 | `RUNS_AS` | Workload → ServiceAccount (pod.spec.serviceAccountName) |
-| `ASSUMES_ROLE` | ServiceAccount → IAMRole (IRSA annotation) |
+| `RUNS_ON` | Workload → Node (pod.spec.nodeName); Phase 14 |
+| `ASSUMES_ROLE` | ServiceAccount or Node → IAMRole (IRSA annotation or instance profile) |
+| `ASSUME_ROLE` | IAMRole → IAMRole (sts:AssumeRole permission); Phase 16.1 |
 | `CONTAINS` | Namespace → Workload or Namespace → ServiceAccount |
-| `CAN_ACCESS` | IAMRole → cloud resource (S3, Secrets Manager, DynamoDB, KMS) |
+| `CAN_ACCESS` | IAMRole → cloud resource (S3, Secrets Manager, DynamoDB, KMS, SSM) |
 
 ### Node ID format
 
@@ -324,7 +349,7 @@ func FindSensitiveResources(g *graph.Graph, startNodeID string) []*graph.Node
 4. Score each surviving path via `ScorePath`.
 5. Return paths sorted by score descending.
 
-**Path scoring (`ScorePath`):**
+**Path scoring (`ScorePath`)** — see also Phase 16.1 for updated maximum:
 
 | Criterion | Score |
 |-----------|-------|
@@ -332,7 +357,124 @@ func FindSensitiveResources(g *graph.Graph, startNodeID string) []*graph.Node
 | Path passes through a Workload node | +20 |
 | Path passes through an IAM role | +20 |
 | Path ends at a high-sensitivity cloud resource | +20 |
-| **Maximum** | **100** |
+| ≥2 IAMRole nodes (cross-role escalation, Phase 16.1) | +10 |
+| **Maximum** | **110** |
+
+---
+
+## Internet → Sensitive Data Attack Path Detection (Phase 16)
+
+`dp` automatically detects attack paths where Internet exposure can reach sensitive cloud data through identity permissions. These paths are derived purely from the asset graph — no rule patterns, no findings required.
+
+### Example path
+
+```
+Internet
+ ↓  (EXPOSES)
+LoadBalancer
+ ↓  (ROUTES_TO)
+Workload (Deployment/platform-api)
+ ↓  (RUNS_ON)
+Node (ip-10-0-1-1)
+ ↓  (ASSUMES_ROLE)
+IAMRole (node-role)
+ ↓  (CAN_ACCESS)
+S3Bucket (customer-data) [HIGH]
+```
+
+### Detection flow
+
+`DetectCloudAttackPaths(g *graph.Graph) []models.CloudAttackPath` (in `internal/engine/cloud_attack_paths.go`) bridges the traversal engine and the audit summary:
+
+1. Calls `FindGraphAttackPaths(g)` (Phase 15.1) which uses `TraverseFromNode` on all `NodeTypeInternet` nodes.
+2. Discards paths whose final node is not a cloud resource (S3Bucket, SecretsManagerSecret, DynamoDBTable, KMSKey, SSMParameter).
+3. Converts surviving `GraphAttackPath` values to `models.CloudAttackPath{Score, Source, Target, Nodes}`.
+4. Returns the converted slice; nil when no qualifying paths exist.
+
+Both identity chains are supported:
+
+| Chain | Edge sequence |
+|-------|--------------|
+| **IRSA** | Workload → ServiceAccount → IAMRole → Cloud Resource |
+| **Instance profile** | Workload → Node → IAMRole → Cloud Resource |
+
+### Integration in RunAudit
+
+Detection runs after both cloud reachability enrichment (Phase 12) and node role enrichment (Phase 14) so all `CAN_ACCESS` and `ASSUMES_ROLE` edges are present. Results are attached unconditionally to `AuditSummary.CloudAttackPaths` — they are not gated on `--show-risk-chains`.
+
+### CLI output
+
+**Table mode** — `CRITICAL ATTACK PATH` section printed before the findings table:
+
+```
+CRITICAL ATTACK PATH
+
+Internet → LB_web-svc → Workload_platform-api → Node_ip-10-0-1-1 → Role_node-role → S3_customer-data
+```
+
+**JSON output** — `cloud_attack_paths` array in the summary:
+
+```json
+"cloud_attack_paths": [
+  {
+    "score": 100,
+    "source": "Internet",
+    "target": "S3_customer-data",
+    "nodes": ["Internet", "LB_web-svc", "Workload_platform-api", "Node_ip-10-0-1-1", "Role_node-role", "S3_customer-data"]
+  }
+]
+```
+
+---
+
+## IAM Privilege Escalation Path Detection (Phase 16.1)
+
+Phase 16.1 extends the asset graph with cross-role escalation edges and upgrades path scoring to detect IAMRole → IAMRole privilege escalation chains.
+
+### New edge type
+
+`ASSUME_ROLE` (`EdgeTypeAssumeRole`) — an IAMRole node's policies grant `sts:AssumeRole` on a second IAMRole. Distinct from `ASSUMES_ROLE` (`EdgeTypeAssumesRole`) which represents a ServiceAccount or Node assuming a role.
+
+### Detection flow
+
+1. After cloud reachability and node role enrichment, `ResolveAssumableRoles(ctx, roleArn)` is called for each IAMRole node in the graph.
+2. The resolver inspects attached managed policies and inline role policies for `Allow` statements containing `sts:AssumeRole` with non-wildcard IAM role ARN resources.
+3. `graph.EnrichWithAssumeRoleEdges` adds `ASSUME_ROLE` edges between IAMRole nodes and creates target role nodes when not already present.
+4. Traversal follows `ASSUME_ROLE` edges alongside all other attacker-movement edges; per-path cycle protection prevents infinite loops.
+
+### Updated scoring
+
+| Criterion | Score |
+|-----------|-------|
+| Internet node in path | +40 |
+| Workload node in path | +20 |
+| At least one IAMRole in path | +20 |
+| Sensitive cloud resource (sensitivity=high) | +20 |
+| **≥2 IAMRole nodes (cross-role escalation)** | **+10** |
+| **Maximum** | **110** |
+
+### Example escalation path
+
+```
+Internet → LB → Workload → SA → IAMRole_app-role --ASSUME_ROLE--> IAMRole_admin-role → S3_prod-data(high)
+Score: 110 (all criteria + escalation bonus)
+```
+
+### Cycle protection
+
+The traversal engine's `inPath` map prevents a node from appearing twice in the same DFS path. Bidirectional `ASSUME_ROLE` edges (Role A ↔ Role B) cannot produce infinite loops.
+
+---
+
+## Recent major features
+
+| Version | Feature |
+|---------|---------|
+| **v0.13** | **Blast Radius** — `ComputeBlastRadius` BFS from any workload/SA to reachable IAM roles and cloud resources; `dp blast-radius` CLI command |
+| **v0.14** | **Node Role Identity Path** — Workload → Node → IAMRole chain modelled in asset graph; `EnrichWithNodeRoles`; `NodeIAMRoleResolver` interface |
+| **v0.15** | **Graph Traversal Engine** — `internal/graph/traversal` package; DFS path enumeration with cycle protection; `FindSensitiveResources`; `FindGraphAttackPaths`; `ScorePath` |
+| **v0.16** | **Internet → Sensitive Data Attack Paths** — `DetectCloudAttackPaths`; `CloudAttackPath{Score, Source, Target, Nodes}` in `AuditSummary`; automatic CRITICAL ATTACK PATH output |
+| **v0.16.1** | **IAM Privilege Escalation Paths** — `ASSUME_ROLE` edge (IAMRole → IAMRole); `ResolveAssumableRoles`; `EnrichWithAssumeRoleEdges`; ScorePath +10 bonus; max score = 110 |
 
 ---
 

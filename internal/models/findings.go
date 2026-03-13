@@ -83,6 +83,22 @@ type AttackPath struct {
 	Description string `json:"description"`
 }
 
+// CloudAttackPath represents a complete Internet-to-sensitive-data attack path
+// discovered through graph traversal. Unlike rule-based AttackPaths, these are
+// derived purely from the asset graph topology and cloud resource sensitivity
+// metadata. Populated by the graph traversal engine (Phase 16).
+type CloudAttackPath struct {
+	// Score is the computed risk score (0–100). Additive: +40 Internet exposure,
+	// +20 privileged workload, +20 IAM role involved, +20 sensitive data reached.
+	Score int `json:"score"`
+	// Source is the ID of the first node in the path (typically "Internet").
+	Source string `json:"source"`
+	// Target is the ID of the last node in the path (a sensitive cloud resource).
+	Target string `json:"target"`
+	// Nodes contains the ordered node IDs from source to target (inclusive).
+	Nodes []string `json:"nodes"`
+}
+
 // AuditSummary aggregates counts and totals across all findings.
 type AuditSummary struct {
 	TotalFindings                int     `json:"total_findings"`
@@ -101,6 +117,10 @@ type AuditSummary struct {
 	// RiskChains groups findings by compound risk chain, ordered by descending
 	// score. Populated only when ShowRiskChains is requested (omitted otherwise).
 	RiskChains []RiskChain `json:"risk_chains,omitempty"`
+	// CloudAttackPaths lists graph-traversal-derived Internet→sensitive-data
+	// attack paths ordered by descending score (Phase 16). Populated whenever
+	// the asset graph is available and contains Internet-to-cloud-resource paths.
+	CloudAttackPaths []CloudAttackPath `json:"cloud_attack_paths,omitempty"`
 }
 
 // AuditReport is the top-level, SaaS-compatible output of any audit run.

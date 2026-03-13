@@ -173,6 +173,124 @@ func ResolveRoleResourceAccess(ctx context.Context, roleArn string, client IAMAc
 	return accesses, nil
 }
 
+// ── ResolveAssumableRoles ──────────────────────────────────────────────────────
+
+// ResolveAssumableRoles analyzes the IAM policies attached to roleArn and
+// returns the set of IAM roles the source role can assume via sts:AssumeRole.
+//
+// Both attached (managed) policies and inline role policies are inspected.
+// Only Allow statements containing an sts:AssumeRole action are considered.
+// Wildcard resource ARNs ("*") are skipped — individual target role ARNs cannot
+// be enumerated from a wildcard. Policy API errors are silently ignored.
+func ResolveAssumableRoles(ctx context.Context, roleArn string, client IAMAccessClient) ([]models.AssumableRole, error) {
+	roleName := extractRoleName(roleArn)
+	if roleName == "" {
+		return nil, nil
+	}
+
+	seen := make(map[string]bool)
+	var assumable []models.AssumableRole
+
+	addRole := func(arn string) {
+		if arn == "" || arn == "*" || seen[arn] {
+			return
+		}
+		seen[arn] = true
+		assumable = append(assumable, models.AssumableRole{
+			ARN:      arn,
+			RoleName: extractRoleName(arn),
+		})
+	}
+
+	// ── Attached (managed) policies ───────────────────────────────────────────
+	attachedOut, err := client.ListAttachedRolePolicies(ctx, &awsiam.ListAttachedRolePoliciesInput{
+		RoleName: &roleName,
+	})
+	if err == nil {
+		for _, p := range attachedOut.AttachedPolicies {
+			if p.PolicyArn == nil {
+				continue
+			}
+			policyOut, err := client.GetPolicy(ctx, &awsiam.GetPolicyInput{PolicyArn: p.PolicyArn})
+			if err != nil || policyOut.Policy == nil || policyOut.Policy.DefaultVersionId == nil {
+				continue
+			}
+			versionOut, err := client.GetPolicyVersion(ctx, &awsiam.GetPolicyVersionInput{
+				PolicyArn: p.PolicyArn,
+				VersionId: policyOut.Policy.DefaultVersionId,
+			})
+			if err != nil || versionOut.PolicyVersion == nil || versionOut.PolicyVersion.Document == nil {
+				continue
+			}
+			doc, err := url.QueryUnescape(*versionOut.PolicyVersion.Document)
+			if err != nil {
+				continue
+			}
+			for _, arn := range parseAssumeRoleTargets(doc) {
+				addRole(arn)
+			}
+		}
+	}
+
+	// ── Inline policies ───────────────────────────────────────────────────────
+	inlineOut, err := client.ListRolePolicies(ctx, &awsiam.ListRolePoliciesInput{
+		RoleName: &roleName,
+	})
+	if err == nil {
+		for _, pName := range inlineOut.PolicyNames {
+			pNameCopy := pName
+			getRoleOut, err := client.GetRolePolicy(ctx, &awsiam.GetRolePolicyInput{
+				RoleName:   &roleName,
+				PolicyName: &pNameCopy,
+			})
+			if err != nil || getRoleOut.PolicyDocument == nil {
+				continue
+			}
+			doc, err := url.QueryUnescape(*getRoleOut.PolicyDocument)
+			if err != nil {
+				continue
+			}
+			for _, arn := range parseAssumeRoleTargets(doc) {
+				addRole(arn)
+			}
+		}
+	}
+
+	return assumable, nil
+}
+
+// parseAssumeRoleTargets extracts IAM role ARNs from Allow statements that
+// contain an sts:AssumeRole action. Returns nil when no such statements exist.
+func parseAssumeRoleTargets(doc string) []string {
+	var pd policyDocument
+	if err := json.Unmarshal([]byte(doc), &pd); err != nil {
+		return nil
+	}
+	var arns []string
+	for _, stmt := range pd.Statement {
+		if !strings.EqualFold(stmt.Effect, "Allow") {
+			continue
+		}
+		actions := toStringSlice(stmt.Action)
+		hasAssumeRole := false
+		for _, a := range actions {
+			if strings.EqualFold(a, "sts:AssumeRole") || a == "*" {
+				hasAssumeRole = true
+				break
+			}
+		}
+		if !hasAssumeRole {
+			continue
+		}
+		for _, res := range toStringSlice(stmt.Resource) {
+			if res != "" && res != "*" && strings.HasPrefix(res, "arn:aws:iam:") {
+				arns = append(arns, res)
+			}
+		}
+	}
+	return arns
+}
+
 // ── Internal helpers ───────────────────────────────────────────────────────────
 
 // parsePolicyDocument decodes a JSON IAM policy document and extracts concrete

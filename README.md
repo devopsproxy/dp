@@ -10,7 +10,19 @@ A deterministic security and cost audit engine for AWS and Kubernetes — offlin
 Internet → LoadBalancer → Workload → ServiceAccount → IAM Role
 ```
 
-`dp` audits your cloud infrastructure by collecting real resource data, running a deterministic rule engine, and surfacing findings with severity rankings and estimated savings. When `--show-risk-chains` is enabled, it traces **multi-layer attack paths** from internet entry points all the way to cloud IAM privilege escalation.
+`dp` audits your cloud infrastructure by collecting real resource data, running a deterministic rule engine, and surfacing findings with severity rankings and estimated savings.
+
+**Core capabilities:**
+
+- AWS cost, security, and data-protection audits (22 rules across 3 domains)
+- Kubernetes governance audits — 22 rules (16 core + 6 EKS)
+- **Kubernetes attack path analysis** — 5 multi-layer paths scored 90–98; rule-correlation-based
+- **Asset graph visualization** — real infrastructure topology as Mermaid or Graphviz
+- **Blast radius analysis** — which S3 buckets, secrets, and keys can a workload reach?
+- **Internet → Sensitive Data attack path detection** — graph-traversal paths scored up to 110
+- **Cloud IAM privilege escalation detection** — `IAMRole_A → IAMRole_B` (sts:AssumeRole) chains
+- Policy file (`dp.yaml`) for per-domain and per-rule enforcement
+- CI-ready: exit 1 on HIGH+; clean JSON output
 
 No agent. No SaaS dependency. Runs offline. Outputs JSON or a table.
 

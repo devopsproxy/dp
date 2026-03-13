@@ -258,6 +258,86 @@ func TestGraphBuilder_WorkloadRunsOnEdge(t *testing.T) {
 	}
 }
 
+// ── TestGraphBuilder_IAMAssumeRoleEdge ────────────────────────────────────────
+
+// TestGraphBuilder_IAMAssumeRoleEdge verifies that EnrichWithAssumeRoleEdges
+// adds ASSUME_ROLE edges between existing IAMRole nodes and adds new IAMRole
+// nodes for target roles not yet present in the graph. It also verifies that:
+//   - Source roles not in the graph are silently skipped.
+//   - The target role node carries the correct ARN metadata.
+func TestGraphBuilder_IAMAssumeRoleEdge(t *testing.T) {
+	const (
+		sourceARN = "arn:aws:iam::123456789012:role/app-role"
+		targetARN = "arn:aws:iam::123456789012:role/admin-role"
+	)
+
+	g := NewGraph()
+	// Add source IAMRole node.
+	sourceID := sanitizeID("IAMRole_app-role")
+	g.AddNode(&Node{
+		ID:       sourceID,
+		Type:     NodeTypeIAMRole,
+		Name:     "app-role",
+		Metadata: map[string]string{"arn": sourceARN},
+	})
+
+	EnrichWithAssumeRoleEdges(g, map[string][]models.AssumableRole{
+		sourceARN: {
+			{ARN: targetARN, RoleName: "admin-role"},
+		},
+	})
+
+	// Target IAMRole node must be created.
+	targetID := sanitizeID("IAMRole_admin-role")
+	targetNode := g.GetNode(targetID)
+	if targetNode == nil {
+		t.Fatalf("expected IAMRole target node %q to be created", targetID)
+	}
+	if targetNode.Type != NodeTypeIAMRole {
+		t.Errorf("expected NodeTypeIAMRole; got %q", targetNode.Type)
+	}
+	if targetNode.Metadata["arn"] != targetARN {
+		t.Errorf("expected arn %q; got %q", targetARN, targetNode.Metadata["arn"])
+	}
+
+	// ASSUME_ROLE edge must exist from source to target.
+	if !g.HasEdge(sourceID, targetID) {
+		t.Errorf("expected ASSUME_ROLE edge %s → %s", sourceID, targetID)
+	}
+
+	// Verify edge type is ASSUME_ROLE (not ASSUMES_ROLE).
+	found := false
+	for _, e := range g.EdgesFrom(sourceID) {
+		if e.To == targetID && e.Type == EdgeTypeAssumeRole {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("edge %s → %s exists but has wrong type (want ASSUME_ROLE)", sourceID, targetID)
+	}
+}
+
+// TestGraphBuilder_IAMAssumeRoleEdge_UnknownSource verifies that
+// EnrichWithAssumeRoleEdges silently skips source roles that have no node.
+func TestGraphBuilder_IAMAssumeRoleEdge_UnknownSource(t *testing.T) {
+	g := NewGraph()
+	// Graph is empty — no IAMRole nodes.
+
+	EnrichWithAssumeRoleEdges(g, map[string][]models.AssumableRole{
+		"arn:aws:iam::123456789012:role/ghost-role": {
+			{ARN: "arn:aws:iam::123456789012:role/target", RoleName: "target"},
+		},
+	})
+
+	// Neither node nor edge should appear.
+	if g.GetNode(sanitizeID("IAMRole_ghost-role")) != nil {
+		t.Error("expected no ghost-role node when source is absent")
+	}
+	if g.GetNode(sanitizeID("IAMRole_target")) != nil {
+		t.Error("expected no target node when source is absent")
+	}
+}
+
 // Ensure the existing cloud-access tests still compile in this file's package.
 // (They live in graph_test.go; this is just a compile-time cross-reference check.)
 var _ = models.CloudResourceTypeS3Bucket

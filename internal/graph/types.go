@@ -103,6 +103,11 @@ const (
 	// the Kubernetes worker node. Added in Phase 14 to support instance-profile
 	// attack paths (Workload → Node → IAMRole → Cloud Resource).
 	EdgeTypeRunsOn EdgeType = "RUNS_ON"
+
+	// EdgeTypeAssumeRole: IAMRole_A → IAMRole_B — role A's policies grant
+	// sts:AssumeRole on role B, enabling cross-role privilege escalation.
+	// Added in Phase 16.1 to model multi-hop IAM escalation paths.
+	EdgeTypeAssumeRole EdgeType = "ASSUME_ROLE"
 )
 
 // Node represents a security-relevant infrastructure entity in the asset graph.

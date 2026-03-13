@@ -170,6 +170,70 @@ Each path's `finding_ids` contains only findings whose primary `rule_id` is in t
 
 ---
 
+## Cloud attack paths
+
+In addition to rule-correlation attack paths (above), `dp` automatically detects **graph-traversal attack paths** — paths derived purely from the asset graph topology, not from rule findings. These are surfaced as `CRITICAL ATTACK PATH` in the output and populate `summary.cloud_attack_paths` in JSON.
+
+Unlike rule-correlation paths, cloud attack paths are **always computed** when the asset graph is built — they are not gated on `--show-risk-chains`.
+
+### What is detected
+
+Every path of the form:
+
+```
+Internet → LoadBalancer → Workload → [Node or ServiceAccount] → IAMRole → Sensitive Cloud Resource
+```
+
+where the cloud resource has `sensitivity = "high"`. Both identity chains are followed:
+
+| Identity chain | Edge path |
+|---------------|-----------|
+| **IRSA** | Workload → ServiceAccount → IAMRole |
+| **Instance profile** | Workload → Node → IAMRole |
+| **Cross-role escalation** | IAMRole_A → IAMRole_B (sts:AssumeRole) |
+
+### Example output
+
+```
+CRITICAL ATTACK PATH
+
+Internet → LoadBalancer_kafka-ui → Deployment_platform-api → Node_ip-10-0-1-1 → IAMRole_node-role → S3Bucket_customer-data
+```
+
+### Scoring
+
+| Criterion | Score |
+|-----------|-------|
+| Internet node in path | +40 |
+| Workload node in path | +20 |
+| IAMRole node in path | +20 |
+| High-sensitivity cloud resource | +20 |
+| ≥2 IAMRole nodes (cross-role escalation) | +10 |
+| **Maximum** | **110** |
+
+### JSON output
+
+```json
+"cloud_attack_paths": [
+  {
+    "score": 110,
+    "source": "Internet",
+    "target": "S3Bucket_customer-data",
+    "nodes": [
+      "Internet",
+      "LoadBalancer_kafka-ui",
+      "Deployment_platform-api",
+      "Node_ip-10-0-1-1",
+      "IAMRole_node-role",
+      "IAMRole_admin-role",
+      "S3Bucket_customer-data"
+    ]
+  }
+]
+```
+
+---
+
 ## Explain attack path
 
 Use `--explain-path <score>` to print a structured breakdown of one attack path. Requires `--show-risk-chains`.

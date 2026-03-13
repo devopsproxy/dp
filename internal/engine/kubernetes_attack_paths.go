@@ -42,6 +42,7 @@ var attackPathEdges = []graph.EdgeType{
 	graph.EdgeTypeRunsOn,
 	graph.EdgeTypeRunsAs,
 	graph.EdgeTypeAssumesRole,
+	graph.EdgeTypeAssumeRole, // Phase 16.1: IAMRole → IAMRole privilege escalation
 	graph.EdgeTypeCanAccess,
 }
 
@@ -117,7 +118,7 @@ func FindGraphAttackPaths(g *graph.Graph) []GraphAttackPath {
 	return results
 }
 
-// ScorePath computes a risk score (0–100) for a traversal result based on
+// ScorePath computes a risk score (0–110) for a traversal result based on
 // the types of nodes present in the path.
 //
 // Scoring criteria (additive):
@@ -126,12 +127,13 @@ func FindGraphAttackPaths(g *graph.Graph) []GraphAttackPath {
 //	+20  if the path passes through a privileged workload (NodeTypeWorkload)
 //	+20  if the path passes through an IAM role (NodeTypeIAMRole)
 //	+20  if the path ends at a sensitive cloud resource (sensitivity == "high")
+//	+10  if the path includes IAMRole → IAMRole privilege escalation (Phase 16.1)
 func ScorePath(g *graph.Graph, path traversal.TraversalResult) int {
 	score := 0
 
 	hasInternet := false
 	hasWorkload := false
-	hasIAMRole := false
+	iamRoleCount := 0
 	hasSensitiveResource := false
 
 	for _, nid := range path.Nodes {
@@ -145,7 +147,7 @@ func ScorePath(g *graph.Graph, path traversal.TraversalResult) int {
 		case graph.NodeTypeWorkload:
 			hasWorkload = true
 		case graph.NodeTypeIAMRole:
-			hasIAMRole = true
+			iamRoleCount++
 		default:
 			if isCloudResource(node.Type) && node.Metadata["sensitivity"] == "high" {
 				hasSensitiveResource = true
@@ -159,11 +161,15 @@ func ScorePath(g *graph.Graph, path traversal.TraversalResult) int {
 	if hasWorkload {
 		score += 20
 	}
-	if hasIAMRole {
+	if iamRoleCount > 0 {
 		score += 20
 	}
 	if hasSensitiveResource {
 		score += 20
+	}
+	// Phase 16.1: +10 for IAMRole → IAMRole cross-role escalation (≥2 IAM role hops).
+	if iamRoleCount >= 2 {
+		score += 10
 	}
 
 	return score

@@ -509,6 +509,10 @@ func renderKubernetesAuditOutput(w io.Writer, report *models.AuditReport, output
 		renderRiskChainTable(w, report, colored)
 		return nil
 	}
+	// Phase 16: surface graph-traversal cloud attack paths in table mode.
+	if len(report.Summary.CloudAttackPaths) > 0 {
+		renderCloudAttackPaths(w, report.Summary.CloudAttackPaths)
+	}
 	dpoutput.RenderTable(w, report.Findings, dpoutput.TableOptions{
 		Colored:        colored,
 		IncludeSavings: false,
@@ -517,6 +521,18 @@ func renderKubernetesAuditOutput(w io.Writer, report *models.AuditReport, output
 		LocationLabel:  "CONTEXT",
 	})
 	return nil
+}
+
+// renderCloudAttackPaths prints CRITICAL ATTACK PATH sections for each
+// graph-traversal-derived Internet→sensitive-data path (Phase 16).
+// Each section shows the full node chain from Internet to the sensitive target.
+func renderCloudAttackPaths(w io.Writer, paths []models.CloudAttackPath) {
+	for _, p := range paths {
+		fmt.Fprintln(w, "CRITICAL ATTACK PATH")
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, strings.Join(p.Nodes, " → "))
+		fmt.Fprintln(w)
+	}
 }
 
 // renderRiskChainTable prints attack paths (Phase 6) and risk chains (Phase 5D)
@@ -531,6 +547,11 @@ func renderRiskChainTable(w io.Writer, report *models.AuditReport, colored bool)
 
 	hasPaths := len(report.Summary.AttackPaths) > 0
 	hasChains := len(report.Summary.RiskChains) > 0
+
+	// Phase 16: cloud attack paths are surfaced regardless of hasPaths/hasChains.
+	if len(report.Summary.CloudAttackPaths) > 0 {
+		renderCloudAttackPaths(w, report.Summary.CloudAttackPaths)
+	}
 
 	if !hasPaths && !hasChains {
 		fmt.Fprintln(w, "No risk chains detected.")

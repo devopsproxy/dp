@@ -52,6 +52,17 @@ type NodeIAMRoleResolver interface {
 	ResolveNodeIAMRole(ctx context.Context, providerID string) (string, error)
 }
 
+// AssumeRoleResolver resolves the set of IAM roles that a given source role
+// can assume via sts:AssumeRole, enabling cross-role privilege escalation
+// detection in the asset graph (Phase 16.1).
+//
+// The interface is defined here (engine layer) for dependency inversion —
+// the engine never imports the AWS IAM provider package directly.
+// Nil disables IAMRole → IAMRole escalation enrichment on the asset graph.
+type AssumeRoleResolver interface {
+	ResolveAssumableRoles(ctx context.Context, roleArn string) ([]models.AssumableRole, error)
+}
+
 // KubernetesEngine orchestrates a Kubernetes governance audit.
 // It supports provider-aware rule evaluation: core rules always run;
 // EKS-specific rules run only when the cluster is detected as EKS.
@@ -60,8 +71,9 @@ type KubernetesEngine struct {
 	coreRegistry     rules.RuleRegistry  // always evaluated
 	eksRegistry      rules.RuleRegistry  // evaluated only for EKS clusters; may be nil
 	eksCollector     EKSDataCollector    // optional; nil disables EKS data collection
-	iamResolver      IAMAccessResolver   // optional; nil disables cloud reachability enrichment
-	nodeRoleResolver NodeIAMRoleResolver // optional; nil disables instance-profile enrichment
+	iamResolver         IAMAccessResolver   // optional; nil disables cloud reachability enrichment
+	nodeRoleResolver    NodeIAMRoleResolver // optional; nil disables instance-profile enrichment
+	assumeRoleResolver  AssumeRoleResolver  // optional; nil disables cross-role escalation enrichment (Phase 16.1)
 	policy           *policy.PolicyConfig
 
 	// lastCtx holds ancillary data from the most recent RunAudit call.
@@ -92,6 +104,16 @@ func (e *KubernetesEngine) WithIAMResolver(resolver IAMAccessResolver) *Kubernet
 // Returns the engine to allow fluent chaining.
 func (e *KubernetesEngine) WithNodeRoleResolver(resolver NodeIAMRoleResolver) *KubernetesEngine {
 	e.nodeRoleResolver = resolver
+	return e
+}
+
+// WithAssumeRoleResolver injects an optional assume-role resolver into the engine.
+// When set, RunAudit will resolve sts:AssumeRole targets for each IAMRole node in
+// the asset graph and enrich the graph with ASSUME_ROLE edges, enabling detection
+// of cross-role privilege escalation paths (Phase 16.1).
+// Returns the engine to allow fluent chaining.
+func (e *KubernetesEngine) WithAssumeRoleResolver(resolver AssumeRoleResolver) *KubernetesEngine {
+	e.assumeRoleResolver = resolver
 	return e
 }
 
@@ -246,6 +268,42 @@ func (e *KubernetesEngine) RunAudit(ctx context.Context, opts KubernetesAuditOpt
 		}
 	}
 
+	// ── IAM Assume-Role Enrichment (Phase 16.1) ──────────────────────────────
+	// When an AssumeRoleResolver is configured, resolve sts:AssumeRole targets
+	// for each IAMRole node and add ASSUME_ROLE edges between IAMRole nodes.
+	// This enables cross-role privilege escalation path detection.
+	// Must run after cloud reachability and node role enrichment so all IAMRole
+	// nodes are already present in the graph.
+	// Non-fatal: per-role resolution failures are silently ignored.
+	if e.lastCtx.AssetGraph != nil && e.assumeRoleResolver != nil {
+		roleAssumptions := make(map[string][]models.AssumableRole)
+		for _, node := range e.lastCtx.AssetGraph.Nodes {
+			if node.Type == graph.NodeTypeIAMRole {
+				arn, _ := node.Metadata["arn"]
+				if arn == "" {
+					continue
+				}
+				assumable, resolveErr := e.assumeRoleResolver.ResolveAssumableRoles(ctx, arn)
+				if resolveErr == nil && len(assumable) > 0 {
+					roleAssumptions[arn] = assumable
+				}
+			}
+		}
+		if len(roleAssumptions) > 0 {
+			graph.EnrichWithAssumeRoleEdges(e.lastCtx.AssetGraph, roleAssumptions)
+		}
+	}
+
+	// ── Cloud Attack Path Detection (Phase 16) ───────────────────────────────
+	// Detect Internet → sensitive cloud resource attack paths via graph traversal.
+	// Must run after both cloud reachability enrichment (Phase 12) and node role
+	// enrichment (Phase 14) so all CAN_ACCESS and ASSUMES_ROLE edges are present.
+	// Non-fatal: detection is skipped when the asset graph is nil.
+	var cloudAttackPaths []models.CloudAttackPath
+	if e.lastCtx.AssetGraph != nil {
+		cloudAttackPaths = DetectCloudAttackPaths(e.lastCtx.AssetGraph)
+	}
+
 	// ── Provider detection ────────────────────────────────────────────────────
 	k8sData.ClusterProvider = detectClusterProvider(k8sData.Nodes)
 
@@ -314,6 +372,12 @@ func (e *KubernetesEngine) RunAudit(ctx context.Context, opts KubernetesAuditOpt
 
 	summary := computeSummary(filtered)
 	summary.RiskScore = maxRiskScore
+
+	// Phase 16: attach graph-traversal-based cloud attack paths (always, not
+	// gated on ShowRiskChains — they surface independently of rule correlation).
+	if len(cloudAttackPaths) > 0 {
+		summary.CloudAttackPaths = cloudAttackPaths
+	}
 
 	// Phase 5D/6: populate risk chain and attack path groupings when requested.
 	if opts.ShowRiskChains {

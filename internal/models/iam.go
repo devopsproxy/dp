@@ -21,6 +21,17 @@ const (
 	CloudResourceTypeSSMParameter CloudResourceType = "SSMParameter"
 )
 
+// AssumableRole describes an IAM role that can be assumed by another role via
+// sts:AssumeRole, as detected from the source role's attached policies.
+// Used by graph.EnrichWithAssumeRoleEdges to add ASSUME_ROLE edges (Phase 16.1).
+type AssumableRole struct {
+	// ARN is the full Amazon Resource Name of the target role to be assumed.
+	ARN string
+
+	// RoleName is the short role name extracted from ARN (e.g. "admin-role").
+	RoleName string
+}
+
 // RoleCloudAccess describes a single AWS resource that an IAM role has
 // permission to access, as resolved from the role's attached policies.
 // It is produced by internal/providers/aws/iam.ResolveRoleResourceAccess
